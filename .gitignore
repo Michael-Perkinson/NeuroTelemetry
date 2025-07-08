@@ -1,0 +1,27 @@
+# Ignore large or unnecessary folders
+data/
+old_versions/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Python stuff
+__pycache__/
+*.py[cod]
+*.ipynb_checkpoints
+
+# Jupyter Notebook metadata
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# Environment files
+.venv
+*.env
+
+# Logs
+*.log
