@@ -1,8 +1,5 @@
 from pathlib import Path
 import pandas as pd
-from collections import defaultdict
-
-from file_handling import list_files
 
 REQUIRED_COLUMNS = {
     'event': 'behavior',
@@ -12,9 +9,9 @@ REQUIRED_COLUMNS = {
 }
 
 
-def read_and_process_event_file(file_path: Path) -> pd.DataFrame:
+def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
     """Read the CSV file and return a DataFrame with events formatted."""
-    df = pd.read_csv(file_path)
+    df = pd.read_csv(event_file_path)
     df.columns = [col.lower() for col in df.columns]
 
     column_map = {}
@@ -25,17 +22,10 @@ def read_and_process_event_file(file_path: Path) -> pd.DataFrame:
                 f"Missing required column containing: '{expected_substring}'")
         column_map[key] = matches[0]
 
-    data = []
-    counter = defaultdict(int)
+    df['event'] = df[column_map['event']]
+    df['instance'] = df.groupby('event').cumcount() + 1
+    df['start'] = df[column_map['start']]
+    df['end'] = df[column_map['stop']]
+    df['duration'] = df[column_map['duration']]
 
-    for _, row in df.iterrows():
-        event = row[column_map['event']]
-        counter[event] += 1
-        data.append((event, counter[event],
-                     row[column_map['start']],
-                     row[column_map['stop']],
-                     row[column_map['duration']]))
-
-    return pd.DataFrame(data, columns=["event", "instance", "start", "end", "duration"])
-
-
+    return df[['event', 'instance', 'start', 'end', 'duration']]
