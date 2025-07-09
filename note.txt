@@ -4,3 +4,9 @@
 /data/B1 Pregnancy Day 2 (15-05-24).boris
 /data/B1 Pregnancy Day 17 (30-05-24).boris
 /data/B1 Pregnancy Day 17 (30-05-24).csv
+
+No longer accepting .000 on datetime
+
+I overwrote the raw data in pressure. smart to just make a new collumn in the df
+
+75 window?

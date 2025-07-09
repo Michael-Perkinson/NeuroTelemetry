@@ -23,3 +23,22 @@ def retrieve_telemetry_data(data_file_path: Path) -> pd.DataFrame:
 
     return pd.read_csv(data_file_path, sep='\t', skiprows=skiprows)
 
+
+    if data_file_path.exists():
+        try:
+            with open(data_file_path, 'r', encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    if line.strip().startswith('Time'):
+                        skiprows = i
+                        break
+                else:
+                    skiprows = 0  # fallback if 'Time' not found
+            return pd.read_csv(data_file_path, sep='\t', skiprows=skiprows)
+        except Exception as e:
+            print(f"Failed to read telemetry file: {e}")
+            list_files(data_file_path.parent, 'ascii')
+            return pd.DataFrame()
+    else:
+        print("No valid data file path provided.")
+        list_files(Path.cwd(), 'ascii')
+        return pd.DataFrame()
