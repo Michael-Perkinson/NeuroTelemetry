@@ -1,6 +1,9 @@
 # Ignore large or unnecessary folders
 data/
 old_versions/
+extracted_data/
+behaviour_images/
+logs/
 
 # OS and IDE files
 .DS_Store

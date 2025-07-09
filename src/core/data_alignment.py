@@ -1,9 +1,11 @@
 from typing import Optional, Tuple, Dict, List
 from copy import deepcopy
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from scipy.signal import detrend, savgol_filter
 
+from adaptive_algorithms import butter_lowpass_filter
 
 def extract_and_process_data(
     data: pd.DataFrame,
@@ -161,30 +163,38 @@ def extract_sample_rates(
     return pressure_sample_rate, temp_sample_rate, activity_sample_rate
 
 
-def preprocess_pressure_data(
-    pressure_data: pd.DataFrame
-) -> pd.DataFrame:
+def preprocess_pressure_data(pressure_data: pd.DataFrame) -> pd.DataFrame:
+    """Preprocess pressure signal by detrending, low-pass filtering, and smoothing."""
 
+    # Interpolate missing values
     pressure_data['Pressure'].interpolate(method='linear', inplace=True)
+
+    # Drop trailing NaNs if any
     last_valid_index = pressure_data['Pressure'].last_valid_index()
-    print(f'''Last valid index (non-NaN in Pressure): {last_valid_index}''')
+    print(f"Last valid index (non-NaN in Pressure): {last_valid_index}")
     pressure_data = pressure_data.loc[:last_valid_index]
-    detrended_data = detrend(pressure_data['Pressure'], type='linear')
-    pressure_data['Pressure'] = detrended_data
 
-    window_length: int = 35
-    if len(pressure_data) < window_length:
-        window_length = len(
-            pressure_data) - 1 if len(pressure_data) % 2 == 0 else len(pressure_data)
-    if window_length % 2 == 0:
-        window_length -= 1
+    # Detrend
+    detrended = detrend(np.asarray(
+        pressure_data['Pressure'].to_numpy(dtype='float64')), type='linear')
 
-    smoothed_pressure = savgol_filter(
-        pressure_data['Pressure'], window_length=window_length, polyorder=2)
-    pressure_data['Pressure'] = smoothed_pressure
+    # Butterworth low-pass filter
+    filtered = butter_lowpass_filter(
+        detrended, cutoff_hz=10, fs=500)
+
+    # Ensure window is odd and fits signal length
+    window = min(35, len(filtered) - 1)
+    if window % 2 == 0:
+        window -= 1
+
+    # Savitzky-Golay smoothing
+    smoothed = savgol_filter(filtered, window_length=window, polyorder=2)
+
+    # Update 'Pressure' column with smoothed data
+    pressure_data['Pressure'] = smoothed
     pressure_data.reset_index(drop=True, inplace=True)
-    return pressure_data
 
+    return pressure_data
 
 def adjust_behaviours(
     behaviour_data: Dict[str, List[Tuple[int, float, float, float]]],
