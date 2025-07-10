@@ -1,0 +1,164 @@
+import numpy as np
+import pandas as pd
+from typing import List, Tuple, Dict
+
+from src.core.respiratory_metrics import bin_data_and_calculate_metrics
+
+
+def find_valid_periods(
+    results: Dict[str, List[Tuple[float, float, np.ndarray, pd.Series, np.ndarray, pd.Series]]],
+    smoothed_data: pd.Series,
+    pressure_data: pd.DataFrame,
+    temp_data: pd.DataFrame,
+    activity_data: pd.DataFrame,
+    time_windows: List[Tuple[float, float]]
+) -> Tuple[List[float], List[float], List[Tuple[float, float]], Dict[str, Dict[str, pd.DataFrame]]]:
+    """
+    Identify valid respiratory periods from peak/trough data and compute metrics.
+
+    Returns:
+        valid_peak_times_all: Flattened list of all peak times in valid periods.
+        valid_pre_peak_times_all: Flattened list of all trough times in valid periods.
+        updated_valid_periods: List of all valid (start, end) period tuples.
+        all_metrics: Dictionary of metrics for each valid period by time window.
+    """
+    valid_peak_times_all = []
+    valid_pre_peak_times_all = []
+    updated_valid_periods = []
+    all_metrics: Dict[str, Dict[str, pd.DataFrame]] = {}
+
+    for window_start_time, window_end_time in time_windows:
+        window_key = f"{window_start_time}-{window_end_time}"
+        all_metrics[window_key] = {}
+
+        window_results = results.get(window_key, [])
+        if not window_results:
+            print(f"No results found for time window {window_key}. Skipping.")
+            continue
+
+        for result in window_results:
+            start_time, end_time, raw_peaks, peak_times, raw_pre_peak_indices, pre_peak_times = result
+
+            # Convert peaks and pre_peak_indices to Series with proper indexing
+            peaks = pd.Series(raw_peaks, index=peak_times.index)
+            pre_peak_indices = pd.Series(
+                raw_pre_peak_indices, index=pre_peak_times.index)
+
+            valid_periods = identify_new_periods(
+                start_time, end_time, peak_times, pressure_data)
+
+            if not valid_periods:
+                print(
+                    f"No valid periods found for {window_key}. Skipping peaks.")
+                continue
+
+            for i, (period_start_time, period_end_time) in enumerate(valid_periods):
+                if not (window_start_time <= period_start_time <= window_end_time and
+                        window_start_time <= period_end_time <= window_end_time):
+                    continue
+
+                peak_mask = (peak_times >= period_start_time) & (
+                    peak_times <= period_end_time)
+                pre_peak_mask = (pre_peak_times >= period_start_time) & (
+                    pre_peak_times <= period_end_time)
+
+                period_peak_times = peak_times[peak_mask]
+                period_trough_times = pre_peak_times[pre_peak_mask]
+                period_peaks = peaks[peak_mask]
+                period_peak_indices = peaks[peak_mask]
+
+                period_trough_indices = pre_peak_indices[pre_peak_mask]
+
+                # Align lengths
+                if len(period_peak_times) > len(period_trough_times):
+                    period_peak_times = period_peak_times[1:]
+                    period_peaks = period_peaks[1:]
+                    period_peak_indices = period_peak_indices[1:]
+                elif len(period_trough_times) > len(period_peak_times):
+                    period_trough_times = period_trough_times[:-1]
+                    period_trough_indices = period_trough_indices[:-1]
+
+                # Calculate metrics
+                binned_metrics_df = bin_data_and_calculate_metrics(
+                    period_start_time,
+                    period_end_time,
+                    period_peak_times,
+                    period_trough_times,
+                    pressure_data,
+                    temp_data,
+                    activity_data
+                )
+
+                period_name = f"Period_{i+1}_{period_start_time}-{period_end_time}"
+                all_metrics[window_key][period_name] = binned_metrics_df
+
+                valid_peak_times_all.extend(period_peak_times)
+                valid_pre_peak_times_all.extend(period_trough_times)
+                updated_valid_periods.append(
+                    (period_start_time, period_end_time))
+
+    return valid_peak_times_all, valid_pre_peak_times_all, updated_valid_periods, all_metrics
+
+
+def identify_new_periods(
+    start_time: float,
+    end_time: float,
+    peak_times: pd.Series,
+    pressure_data: pd.DataFrame,
+    min_peaks: int = 50,
+    interval_window: int = 10,
+    break_multiplier: float = 2.0
+) -> List[Tuple[float, float]]:
+    """
+    Detect valid respiratory periods based on spacing between peaks.
+    """
+    peak_times_filtered = peak_times[(peak_times >= start_time) & (
+        peak_times <= end_time)].sort_values().to_numpy()
+
+    if len(peak_times_filtered) < min_peaks:
+        print("Not enough peaks in the window to form a valid period.")
+        return []
+
+    valid_periods = []
+    current_period_start = peak_times_filtered[0]
+    current_period_peaks = [peak_times_filtered[0]]
+    recent_intervals: List[float] = []
+
+    for i in range(1, len(peak_times_filtered)):
+        current_peak = peak_times_filtered[i]
+        previous_peak = peak_times_filtered[i - 1]
+        interval = current_peak - previous_peak
+
+        recent_intervals.append(interval)
+        if len(recent_intervals) > interval_window:
+            recent_intervals.pop(0)
+
+        median_interval = np.median(recent_intervals)
+
+        if interval > break_multiplier * median_interval:
+            if len(current_period_peaks) >= min_peaks:
+                period_end = previous_peak
+                valid_periods.append((current_period_start, period_end))
+                print(
+                    f"Valid period: {current_period_start:.3f}s to {period_end:.3f}s with {len(current_period_peaks)} peaks")
+            else:
+                print(
+                    f"Discarded: {current_period_start:.3f}s to {previous_peak:.3f}s with only {len(current_period_peaks)} peaks")
+
+            current_period_start = current_peak
+            current_period_peaks = [current_peak]
+            recent_intervals = []
+            continue
+
+        current_period_peaks.append(current_peak)
+
+    if len(current_period_peaks) >= min_peaks:
+        period_end = peak_times_filtered[-1]
+        valid_periods.append((current_period_start, period_end))
+        print(
+            f"Valid period: {current_period_start:.3f}s to {period_end:.3f}s with {len(current_period_peaks)} peaks")
+    else:
+        print(
+            f"Discarded last: {current_period_start:.3f}s to {peak_times_filtered[-1]:.3f}s with only {len(current_period_peaks)} peaks")
+
+    return valid_periods

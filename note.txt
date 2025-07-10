@@ -10,3 +10,14 @@ No longer accepting .000 on datetime
 I overwrote the raw data in pressure. smart to just make a new collumn in the df
 
 75 window?
+
+
+
+
+Add in mean of all in valid period
+
+And in OVERALL mean
+
+Images SVG of 10 eaks in a row per cluster.
+
+Frequency come out properly

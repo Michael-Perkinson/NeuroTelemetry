@@ -1,3 +1,5 @@
+from typing import Tuple
+import pandas as pd
 import math
 from scipy.signal import butter, filtfilt, savgol_filter
 
@@ -23,3 +25,11 @@ def compute_first_derivative(signal, fs):
         deriv=1, delta=1/fs, mode='interp'
     )
 
+
+def get_time_bounds(pressure_data: pd.DataFrame) -> Tuple[float, float]:
+    """
+    Returns the min and max of TimeSinceReference from the pressure data.
+    """
+    min_time = pressure_data['TimeSinceReference'].min()
+    max_time = pressure_data['TimeSinceReference'].max()
+    return min_time, max_time

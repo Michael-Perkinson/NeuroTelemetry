@@ -1,14 +1,20 @@
 import pandas as pd
 import numpy as np
 from scipy.signal import find_peaks
+from typing import List, Tuple
 
 
-def find_shoulders_method1(dvdt_seg, start_idx, peak_idx, threshold_factor=0.1):
+def find_shoulders(
+    dvdt_seg: np.ndarray,
+    start_idx: int,
+    peak_idx: int,
+    threshold_factor: float = 0.1
+) -> int:
     """Method 1: First derivative threshold approach with zero-crossing constraint"""
     if len(dvdt_seg) == 0:
         return start_idx
 
-    zero_crossings = []
+    zero_crossings: List[int] = []
     for i in range(len(dvdt_seg) - 1):
         if dvdt_seg[i] >= 0 and dvdt_seg[i + 1] < 0:
             zero_crossings.append(i + 1)
@@ -45,24 +51,37 @@ def find_shoulders_method1(dvdt_seg, start_idx, peak_idx, threshold_factor=0.1):
     return start_idx + search_offset + shoulder_rel
 
 
-def find_peaks_and_shoulders(time, pressure, dvdt):
+def find_peaks_and_shoulders(
+    time: pd.Series,
+    pressure: np.ndarray,
+    dvdt: np.ndarray
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[int]]:
     time_win = time.values
     pressure_win = pressure
     dvdt_win = dvdt
 
     peaks, _ = find_peaks(-pressure_win, prominence=3, distance=20)
 
-    shoulders = []
+    shoulders: List[int] = []
     for i, pk in enumerate(peaks):
         start = peaks[i - 1] if i > 0 else 0
         dvdt_seg = dvdt_win[start:pk]
-        shoulder = find_shoulders_method1(dvdt_seg, start, pk)
+        shoulder = find_shoulders(dvdt_seg, start, pk)
         shoulders.append(shoulder)
 
     return time_win, pressure_win, dvdt_win, peaks, shoulders
 
 
-def analyse_shoulders(time_windows, smoothed_pressure, pressure_data, dvdt):
+def analyse_shoulders(
+    time_windows: List[Tuple[float, float]],
+    smoothed_pressure: pd.Series,
+    pressure_data: pd.DataFrame,
+    dvdt: pd.Series
+) -> List[
+    Tuple[
+        float, float, np.ndarray, pd.Series, np.ndarray, pd.Series
+    ]
+]:
     results = []
 
     for start_time, end_time in time_windows:
@@ -104,5 +123,3 @@ def analyse_shoulders(time_windows, smoothed_pressure, pressure_data, dvdt):
         ))
 
     return results
-
-

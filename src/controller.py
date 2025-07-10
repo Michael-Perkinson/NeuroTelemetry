@@ -7,14 +7,24 @@
 # 3. **Identify Valid Periods and Calculate Metrics**: Filters valid periods and computes respiratory metrics.
 # 4. **Plot the Data**: Visualizes the analyzed data, showing pressure, temperature, and activity over time.
 #
+from core.export_data import create_summary_data, export_mrp_data_to_excel
+from core.export_graphs import (
+    export_full_time_range_plot,
+    export_behavior_images_interactive
+)
+from core.export_graphs import export_full_time_range_plot
+from core.file_handling import create_folders_for_graphs
+from core.adaptive_algorithms import get_time_bounds
+from core.period_analysis import find_valid_periods
+from core.peak_detection import analyse_shoulders
 from pathlib import Path
 import pandas as pd
 
-from src.core.file_handling import list_files
-from src.core.event_file_parser import read_and_process_event_file
-from src.core.data_file_parser import retrieve_telemetry_data
-from src.core.logger import log_info, log_error, log_exception
-from src.core.file_handling import list_files
+from core.file_handling import list_files
+from core.event_file_parser import read_and_process_event_file
+from core.data_file_parser import retrieve_telemetry_data
+from core.logger import log_info, log_error, log_exception
+from core.file_handling import list_files
 
 
 def load_data(telemetry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -45,6 +55,63 @@ def load_data(telemetry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd.
 
         # Raise with helpful file info
         raise RuntimeError(error_message)
+
+
+
+
+
+# # Step 1–3: Run peak/shoulder analysis
+# results = {
+#     f"{start}-{end}": analyse_shoulders([...])
+#     for start, end in time_windows
+# }
+
+# # Step 4: Unpack and collect all peak/trough times
+# all_peak_times = []
+# all_pre_peak_times = []
+# for window_results in results.values():
+#     for result in window_results:
+#         _, _, _, peak_times, _, pre_peak_times = result
+#         all_peak_times.extend(peak_times)
+#         all_pre_peak_times.extend(pre_peak_times)
+# # Step 5: Analyze periods and calculate metrics
+# valid_peak_times_all, valid_pre_peak_times_all, updated_valid_periods, all_metrics = find_valid_periods(
+#     results, smoothed_pressure, pressure_data, temp_data, activity_data, time_windows
+# min_time, max_time = get_time_bounds(pressure_data)
+# html_save_folder, svg_save_folder, full_trace_folder, file_base = create_folders_for_graphs(
+#     data_file_path)
+# export_full_time_range_plot(
+#     pressure_data,
+#     temp_data,
+#     activity_data,
+#     valid_peak_times_all,
+#     valid_pre_peak_times_all,
+#     min_time,
+#     max_time,
+#     behaviour_to_plot,
+#     full_trace_folder,
+#     file_base
+# )
+# export_behavior_images_interactive(
+#     time_windows=time_windows,
+#     pressure_data=pressure_data,
+#     temp_data=temp_data,
+#     activity_data=activity_data,
+#     valid_peak_times_all=valid_peak_times_all,
+#     valid_pre_peak_times_all=valid_pre_peak_times_all,
+#     behaviour_to_plot=behaviour_to_plot,
+#     html_save_folder=html_save_folder,
+#     svg_save_folder=svg_save_folder,
+#     file_base=file_base
+# )
+# export_mrp_data_to_excel(summary_data, all_metrics, data_file_path)
+
+
+
+
+
+
+
 
 
 

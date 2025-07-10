@@ -39,8 +39,8 @@ def compute_first_derivative(signal, fs):
     )
 
 
-def find_shoulders_method1(dvdt_seg, start_idx, peak_idx, threshold_factor=THRESHOLD_FACTOR):
-    """Method 1: First derivative threshold approach with zero-crossing constraint"""
+def find_peak_shoulders(dvdt_seg, start_idx, peak_idx, threshold_factor=THRESHOLD_FACTOR):
+    """First derivative threshold approach with zero-crossing constraint"""
     if len(dvdt_seg) == 0:
         return start_idx
 
@@ -53,6 +53,7 @@ def find_shoulders_method1(dvdt_seg, start_idx, peak_idx, threshold_factor=THRES
 
     # If no zero crossing found, find the point closest to zero
     if not zero_crossings:
+        print(f'No zero crossing for peak at {peak_idx}')
         closest_to_zero_idx = np.argmin(np.abs(dvdt_seg))
         # Only use if it's reasonably close to zero (not deep negative)
         if dvdt_seg[closest_to_zero_idx] > -0.5:  # Adjust threshold as needed
@@ -116,7 +117,7 @@ def find_peaks_and_shoulders(time, pressure, dvdt):
         dvdt_seg = dvdt_win[start:pk]
 
         # Find shoulder using first derivative threshold method
-        shoulder = find_shoulders_method1(dvdt_seg, start, pk)
+        shoulder = find_peak_shoulders(dvdt_seg, start, pk)
         shoulders.append(shoulder)
 
     return time_win, pressure_win, dvdt_win, peaks, shoulders
