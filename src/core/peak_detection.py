@@ -56,11 +56,12 @@ def find_peaks_and_shoulders(
     pressure: np.ndarray,
     dvdt: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[int]]:
+    
     time_win = time.values
     pressure_win = pressure
     dvdt_win = dvdt
 
-    peaks, _ = find_peaks(-pressure_win, prominence=3, distance=20)
+    peaks, _ = find_peaks(-pressure_win, prominence=3, distance=100)
 
     shoulders: List[int] = []
     for i, pk in enumerate(peaks):
@@ -74,7 +75,6 @@ def find_peaks_and_shoulders(
 
 def analyse_shoulders(
     time_windows: List[Tuple[float, float]],
-    smoothed_pressure: pd.Series,
     pressure_data: pd.DataFrame,
     dvdt: pd.Series
 ) -> List[
@@ -87,7 +87,7 @@ def analyse_shoulders(
     for start_time, end_time in time_windows:
         window_mask = (pressure_data['TimeSinceReference'] >= start_time) & (
             pressure_data['TimeSinceReference'] <= end_time)
-        smoothed_window = smoothed_pressure[window_mask]
+        smoothed_window = pressure_data.loc[window_mask, 'SmoothedPressure']
         pressure_data_window = pressure_data[window_mask]
         dvdt_window = dvdt[window_mask]
 

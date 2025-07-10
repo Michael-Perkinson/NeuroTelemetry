@@ -18,6 +18,8 @@ Add in mean of all in valid period
 
 And in OVERALL mean
 
-Images SVG of 10 eaks in a row per cluster.
+Images SVG of 10 peaks in a row per cluster.
 
 Frequency come out properly
+
+01/11/2025 05:05:09 PM

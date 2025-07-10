@@ -1,3 +1,4 @@
+import traceback
 from PySide6.QtWidgets import QScrollArea, QWidget
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
@@ -11,6 +12,7 @@ import sys
 from PySide6.QtWidgets import QSizePolicy
 
 from src.controller import load_data
+from src.controller import run_analysis_pipeline
 
 
 class DataConfigGUI(QWidget):
@@ -193,18 +195,41 @@ class DataConfigGUI(QWidget):
                 raise FileNotFoundError(
                     "One or both selected files do not exist.")
 
-            self.log("🟡 Loading files...")
-            telemetry_df, event_df = load_data(telemetry_path, behavior_path)
+            self.log("Loading files...")
+            telemetry_df, event_df = load_data(
+                telemetry_path, behavior_path)
 
             if telemetry_df.empty or event_df.empty:
                 raise ValueError("One or both files are empty.")
 
-            self.log("✅ Files loaded successfully.")
+            self.log("Files loaded successfully.")
             self.log(f"Telemetry rows: {len(telemetry_df)}")
             self.log(f"Event rows: {len(event_df)}")
 
-            # Insert analysis call here
+            # Extract values from GUI
+            probe_time_str = self.probe_time.dateTime().toString("MM/dd/yyyy hh:mm:ss AP")
+            video_time_str = self.video_time.dateTime().toString("MM/dd/yyyy hh:mm:ss AP")
+            behaviour_to_plot = self.behavior_input.text()
+            buffer_before = self.buffer_before.value()
+            buffer_after = self.buffer_after.value()
+            min_duration = self.min_duration.value() if self.restrict_duration.isChecked() else 0
+            output_path = telemetry_path  # used for naming and output folders
+
+            self.log("Running analysis...")
+            run_analysis_pipeline(
+                telemetry_df=telemetry_df,
+                event_df=event_df,
+                behaviour_to_plot=behaviour_to_plot,
+                probe_time=probe_time_str,
+                video_time=video_time_str,
+                buffer_before=buffer_before,
+                buffer_after=buffer_after,
+                min_duration=min_duration,
+                output_path=output_path,
+                log_callback=self.log
+            )
 
         except Exception as e:
-            self.log(f"❌ Error: {e}")
+            self.log(f"Error: {e}")
+            self.log(traceback.format_exc())
             QMessageBox.critical(self, "Error", str(e))

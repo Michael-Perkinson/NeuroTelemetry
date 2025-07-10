@@ -7,7 +7,6 @@ from src.core.respiratory_metrics import bin_data_and_calculate_metrics
 
 def find_valid_periods(
     results: Dict[str, List[Tuple[float, float, np.ndarray, pd.Series, np.ndarray, pd.Series]]],
-    smoothed_data: pd.Series,
     pressure_data: pd.DataFrame,
     temp_data: pd.DataFrame,
     activity_data: pd.DataFrame,

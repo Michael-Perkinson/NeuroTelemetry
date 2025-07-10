@@ -49,7 +49,7 @@ def create_summary_data(
     return summary_data
 
 
-def export_mrp_data_to_excel(
+def export_data_to_excel(
     summary_data: List[Dict[str, Any]],
     all_metrics: Dict[str, Dict[str, pd.DataFrame]],
     data_file_path: str
