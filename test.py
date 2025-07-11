@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.signal import butter, filtfilt, savgol_filter, find_peaks, detrend
+from typing import List
 
 # Parameters
 CUTOFF_HZ = 10
@@ -39,33 +40,31 @@ def compute_first_derivative(signal, fs):
     )
 
 
-def find_peak_shoulders(dvdt_seg, start_idx, peak_idx, threshold_factor=THRESHOLD_FACTOR):
+def find_shoulders(
+    dvdt_seg: np.ndarray,
+    start_idx: int,
+    peak_idx: int,
+    threshold_factor: float = 0.1
+) -> int:
     """First derivative threshold approach with zero-crossing constraint"""
     if len(dvdt_seg) == 0:
         return start_idx
 
-    # Find the last zero crossing (or closest to zero) before the peak
-    # This represents the end of the flat/baseline phase
-    zero_crossings = []
+    zero_crossings: List[int] = []
     for i in range(len(dvdt_seg) - 1):
-        if dvdt_seg[i] >= 0 and dvdt_seg[i + 1] < 0:  # Positive to negative crossing
-            zero_crossings.append(i + 1)  # Take the first negative point
+        if dvdt_seg[i] >= 0 and dvdt_seg[i + 1] < 0:
+            zero_crossings.append(i + 1)
 
-    # If no zero crossing found, find the point closest to zero
     if not zero_crossings:
-        print(f'No zero crossing for peak at {peak_idx}')
-        closest_to_zero_idx = np.argmin(np.abs(dvdt_seg))
-        # Only use if it's reasonably close to zero (not deep negative)
-        if dvdt_seg[closest_to_zero_idx] > -0.5:  # Adjust threshold as needed
+        closest_to_zero_idx = int(np.argmin(np.abs(dvdt_seg)))
+        if dvdt_seg[closest_to_zero_idx] > -0.5:
             zero_crossings = [closest_to_zero_idx]
 
-    # Determine search start point
     if zero_crossings:
-        search_start = zero_crossings[-1]  # Use the last zero crossing
+        search_start = zero_crossings[-1]
         dvdt_search = dvdt_seg[search_start:]
         search_offset = search_start
     else:
-        # Fallback: search from beginning but with warning
         print(
             f"Warning: No zero crossing found for peak at {peak_idx}, using full segment")
         dvdt_search = dvdt_seg
@@ -74,14 +73,9 @@ def find_peak_shoulders(dvdt_seg, start_idx, peak_idx, threshold_factor=THRESHOL
     if len(dvdt_search) == 0:
         return start_idx + search_offset
 
-    # Find the steepest negative slope in the search region
     min_slope = np.min(dvdt_search)
     min_slope_idx = np.argmin(dvdt_search)
-
-    # Set threshold as fraction of steepest slope
     threshold = min_slope * threshold_factor
-
-    # Find first point where slope exceeds threshold (becomes steep enough)
     steep_points = np.where(dvdt_search <= threshold)[0]
 
     if len(steep_points) > 0:
@@ -90,7 +84,7 @@ def find_peak_shoulders(dvdt_seg, start_idx, peak_idx, threshold_factor=THRESHOL
         print("Used fallback to steepest point")
         shoulder_rel = min_slope_idx
 
-    return start_idx + search_offset + shoulder_rel
+    return int(start_idx + search_offset + shoulder_rel)
 
 
 def find_peaks_and_shoulders(time, pressure, dvdt):

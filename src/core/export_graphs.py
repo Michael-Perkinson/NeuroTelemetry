@@ -1,9 +1,13 @@
+import plotly.graph_objects as go
+from typing import Sequence
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objs as go
 import pandas as pd
 from typing import List, Tuple
+
+from src.core.adaptive_algorithms import get_nearest_points
 
 
 # --- Main Full Trace Export ---
@@ -27,6 +31,23 @@ def export_full_time_range_plot(
         valid_peak_times_all, min_time, max_time)
     valid_pre_peak_times = filter_times_to_range(
         valid_pre_peak_times_all, min_time, max_time)
+    
+    # Store original lengths
+    original_peak_len = len(valid_peak_times)
+    original_pre_peak_len = len(valid_pre_peak_times)
+
+    # Trim both to the shorter length
+    min_len = min(original_peak_len, original_pre_peak_len)
+    valid_peak_times = valid_peak_times[:min_len]
+    valid_pre_peak_times = valid_pre_peak_times[:min_len]
+
+    # Track how many were trimmed
+    trimmed_peaks = original_peak_len - min_len
+    trimmed_pre_peaks = original_pre_peak_len - min_len
+
+    if trimmed_peaks > 0 or trimmed_pre_peaks > 0:
+        print(
+            f"Trimmed {trimmed_peaks} peaks and {trimmed_pre_peaks} pre-peaks to match lengths.")
 
     title = f"{behaviour_to_plot}: Full Time Range {min_time:.2f} to {max_time:.2f}"
 
@@ -63,12 +84,11 @@ def export_behavior_images_interactive(
     svg_save_folder: str,
     file_base: str
 ):
-    valid_peak_times_all = np.array(valid_peak_times_all)
-    valid_pre_peak_times_all = np.array(valid_pre_peak_times_all)
 
     for i, (start_time, end_time) in enumerate(time_windows):
+        # Downsample pressure data for faster plotting
         pressure_segment = filter_df_by_time(
-            pressure_data, start_time, end_time).iloc[::10].copy()
+            pressure_data, start_time, end_time)
         temp_segment = filter_df_by_time(temp_data, start_time, end_time)
         activity_segment = filter_df_by_time(
             activity_data, start_time, end_time)
@@ -124,29 +144,46 @@ def create_interactive_plot(
         x=pressure_df['TimeSinceReference'], y=pressure_df['SmoothedPressure'],
         mode='lines', name='Smoothed Pressure', line=dict(color='black', width=1)
     ))
+
     fig.add_trace(go.Scatter(
         x=temp_df['TimeSinceReference'], y=temp_df['Temp'],
         mode='lines', name='Temperature', line=dict(color='red', width=1),
         yaxis='y2'
     ))
+
     fig.add_trace(go.Scatter(
         x=activity_df['TimeSinceReference'], y=activity_df['Activity'],
         mode='lines', name='Activity', line=dict(color='green', width=1, dash='dot')
     ))
 
-    if peak_times:
+    if len(peak_times) > 0:
+        peak_series = pressure_df.set_index('TimeSinceReference')[
+            'SmoothedPressure']
+        peak_pressures = peak_series.reindex(peak_times)
+        peak_pressures = peak_pressures.dropna()
+        peak_times_filtered = [t for t, v in zip(
+            peak_times, peak_pressures) if not pd.isna(v)]
+
         fig.add_trace(go.Scatter(
-            x=peak_times,
-            y=pressure_df.loc[pressure_df['TimeSinceReference'].isin(
-                peak_times), 'SmoothedPressure'],
-            mode='markers', name='Peaks', marker=dict(color='magenta', size=6, symbol='cross')
+            x=peak_times_filtered,
+            y=peak_pressures.values,
+            mode='markers', name='Peaks',
+            marker=dict(color='magenta', size=6, symbol='cross')
         ))
-    if pre_peak_times:
+
+    if len(pre_peak_times) > 0:
+        pre_series = pressure_df.set_index('TimeSinceReference')[
+            'SmoothedPressure']
+        pre_pressures = pre_series.reindex(pre_peak_times)
+        pre_pressures = pre_pressures.dropna()
+        pre_times_filtered = [t for t, v in zip(
+            pre_peak_times, pre_pressures) if not pd.isna(v)]
+
         fig.add_trace(go.Scatter(
-            x=pre_peak_times,
-            y=pressure_df.loc[pressure_df['TimeSinceReference'].isin(
-                pre_peak_times), 'SmoothedPressure'],
-            mode='markers', name='Pre-Peaks', marker=dict(color='gold', size=6, symbol='triangle-up')
+            x=pre_times_filtered,
+            y=pre_pressures.values,
+            mode='markers', name='Pre-Peaks',
+            marker=dict(color='gold', size=6, symbol='triangle-up')
         ))
 
     fig.update_layout(
@@ -192,15 +229,26 @@ def create_static_plot(
     ax1.plot(activity_df['TimeSinceReference'], activity_df['Activity'],
              color='green', linestyle='dotted', label="Activity")
 
-    if peak_times:
-        ax1.scatter(peak_times,
-                    pressure_df.loc[pressure_df['TimeSinceReference'].isin(
-                        peak_times), 'SmoothedPressure'],
+    if len(peak_times) > 0:
+        peak_series = pressure_df.set_index('TimeSinceReference')[
+            'SmoothedPressure']
+        peak_pressures = peak_series.reindex(peak_times)
+        peak_pressures = peak_pressures.dropna()
+        peak_times_filtered = [t for t, v in zip(
+            peak_times, peak_pressures) if not pd.isna(v)]
+
+        ax1.scatter(peak_times_filtered, peak_pressures.values,
                     color='magenta', marker='x', label="Peaks")
-    if pre_peak_times:
-        ax1.scatter(pre_peak_times,
-                    pressure_df.loc[pressure_df['TimeSinceReference'].isin(
-                        pre_peak_times), 'SmoothedPressure'],
+
+    if len(pre_peak_times) > 0:
+        pre_series = pressure_df.set_index('TimeSinceReference')[
+            'SmoothedPressure']
+        pre_pressures = pre_series.reindex(pre_peak_times)
+        pre_pressures = pre_pressures.dropna()
+        pre_times_filtered = [t for t, v in zip(
+            pre_peak_times, pre_pressures) if not pd.isna(v)]
+
+        ax1.scatter(pre_times_filtered, pre_pressures.values,
                     color='gold', marker='^', label="Pre-Peaks")
 
     ax1.set_title(title)
@@ -210,11 +258,12 @@ def create_static_plot(
     plt.close(fig)
 
 
-# --- Utilities ---
+
 def filter_df_by_time(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:
     return df[(df['TimeSinceReference'] >= start) & (df['TimeSinceReference'] <= end)]
 
 
-def filter_times_to_range(times: List[float], start: float, end: float) -> np.ndarray:
-    times_array = np.array(times, dtype=np.float64)
-    return times_array[(times_array >= start) & (times_array <= end)]
+def filter_times_to_range(times: Sequence[float], start: float, end: float) -> List[float]:
+    times_array = np.asarray(times, dtype=np.float64)
+    filtered = times_array[(times_array >= start) & (times_array <= end)]
+    return filtered.tolist()

@@ -213,6 +213,7 @@ class DataConfigGUI(QWidget):
             buffer_before = self.buffer_before.value()
             buffer_after = self.buffer_after.value()
             min_duration = self.min_duration.value() if self.restrict_duration.isChecked() else 0
+            bin_size = self.bin_size.value()
             output_path = telemetry_path  # used for naming and output folders
 
             self.log("Running analysis...")
@@ -225,6 +226,7 @@ class DataConfigGUI(QWidget):
                 buffer_before=buffer_before,
                 buffer_after=buffer_after,
                 min_duration=min_duration,
+                bin_size_sec=bin_size,
                 output_path=output_path,
                 log_callback=self.log
             )

@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
-from src.core.respiratory_metrics import bin_data_and_calculate_metrics
+from src.core.respiratory_metrics import calculate_binned_period_metrics, calculate_valid_period_metrics, calculate_combined_period_metrics
 
 
 def find_valid_periods(
@@ -10,8 +10,12 @@ def find_valid_periods(
     pressure_data: pd.DataFrame,
     temp_data: pd.DataFrame,
     activity_data: pd.DataFrame,
-    time_windows: List[Tuple[float, float]]
-) -> Tuple[List[float], List[float], List[Tuple[float, float]], Dict[str, Dict[str, pd.DataFrame]]]:
+    time_windows: List[Tuple[float, float]],
+    bin_size_sec: int
+) -> Tuple[
+    List[float], List[float], List[Tuple[float, float]],
+    Dict[str, Dict[str, Any]]
+]:
     """
     Identify valid respiratory periods from peak/trough data and compute metrics.
 
@@ -19,36 +23,37 @@ def find_valid_periods(
         valid_peak_times_all: Flattened list of all peak times in valid periods.
         valid_pre_peak_times_all: Flattened list of all trough times in valid periods.
         updated_valid_periods: List of all valid (start, end) period tuples.
-        all_metrics: Dictionary of metrics for each valid period by time window.
+        all_metrics: Structured dictionary for export.
     """
     valid_peak_times_all = []
     valid_pre_peak_times_all = []
     updated_valid_periods = []
-    all_metrics: Dict[str, Dict[str, pd.DataFrame]] = {}
+    all_metrics: Dict[str, Dict[str, Any]] = {}
 
     for window_start_time, window_end_time in time_windows:
         window_key = f"{window_start_time}-{window_end_time}"
-        all_metrics[window_key] = {}
-
         window_results = results.get(window_key, [])
         if not window_results:
             print(f"No results found for time window {window_key}. Skipping.")
             continue
 
+        window_periods = {}
+        window_all_period_metrics = []
+
         for result in window_results:
             start_time, end_time, raw_peaks, peak_times, raw_pre_peak_indices, pre_peak_times = result
 
-            # Convert peaks and pre_peak_indices to Series with proper indexing
+            # Convert arrays to Series
             peaks = pd.Series(raw_peaks, index=peak_times.index)
             pre_peak_indices = pd.Series(
                 raw_pre_peak_indices, index=pre_peak_times.index)
 
             valid_periods = identify_new_periods(
-                start_time, end_time, peak_times, pressure_data)
+                start_time, end_time, peak_times, pressure_data
+            )
 
             if not valid_periods:
-                print(
-                    f"No valid periods found for {window_key}. Skipping peaks.")
+                print(f"No valid periods found for {window_key}. Skipping.")
                 continue
 
             for i, (period_start_time, period_end_time) in enumerate(valid_periods):
@@ -56,17 +61,18 @@ def find_valid_periods(
                         window_start_time <= period_end_time <= window_end_time):
                     continue
 
+                # Masks
                 peak_mask = (peak_times >= period_start_time) & (
                     peak_times <= period_end_time)
-                pre_peak_mask = (pre_peak_times >= period_start_time) & (
+                trough_mask = (pre_peak_times >= period_start_time) & (
                     pre_peak_times <= period_end_time)
 
+                # Extract series
                 period_peak_times = peak_times[peak_mask]
-                period_trough_times = pre_peak_times[pre_peak_mask]
+                period_trough_times = pre_peak_times[trough_mask]
                 period_peaks = peaks[peak_mask]
                 period_peak_indices = peaks[peak_mask]
-
-                period_trough_indices = pre_peak_indices[pre_peak_mask]
+                period_trough_indices = pre_peak_indices[trough_mask]
 
                 # Align lengths
                 if len(period_peak_times) > len(period_trough_times):
@@ -77,26 +83,46 @@ def find_valid_periods(
                     period_trough_times = period_trough_times[:-1]
                     period_trough_indices = period_trough_indices[:-1]
 
-                # Calculate metrics
-                binned_metrics_df = bin_data_and_calculate_metrics(
-                    period_start_time,
-                    period_end_time,
-                    period_peak_times,
-                    period_trough_times,
-                    pressure_data,
-                    temp_data,
-                    activity_data
+                # --- Metrics ---
+                period_name = f"Period_{i+1}_{period_start_time}-{period_end_time}"
+
+                binned_df = calculate_binned_period_metrics(
+                    period_start_time, period_end_time, bin_size_sec,
+                    period_peak_times, period_trough_times,
+                    pressure_data, temp_data, activity_data
                 )
 
-                period_name = f"Period_{i+1}_{period_start_time}-{period_end_time}"
-                all_metrics[window_key][period_name] = binned_metrics_df
+                summary_metrics = calculate_valid_period_metrics(
+                    period_peak_times,
+                    period_trough_times,
+                    pressure_data
+                )
+                
+                window_all_period_metrics.append(summary_metrics)
+                print('summary_metrics', summary_metrics)
+
+                # Store
+                window_periods[period_name] = {
+                    "Binned": binned_df,
+                    "Summary": summary_metrics
+                }
 
                 valid_peak_times_all.extend(period_peak_times)
                 valid_pre_peak_times_all.extend(period_trough_times)
                 updated_valid_periods.append(
                     (period_start_time, period_end_time))
 
+        # Combine metrics from all periods in this window
+        combined_summary = calculate_combined_period_metrics(
+            window_all_period_metrics)
+
+        all_metrics[window_key] = {
+            "CombinedSummary": combined_summary,
+            "Periods": window_periods
+        }
+
     return valid_peak_times_all, valid_pre_peak_times_all, updated_valid_periods, all_metrics
+
 
 
 def identify_new_periods(

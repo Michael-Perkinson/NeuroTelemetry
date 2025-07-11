@@ -20,12 +20,12 @@ def create_summary_data(
     for window_start_time, window_end_time in time_windows:
         # Time window block
         summary_data.append({
+            'Description': 'Overall Time Window',
             'Start Time': window_start_time,
             'End Time': window_end_time,
             'Number of Peaks': None,
             'Duration (s)': window_end_time - window_start_time,
             'Peaks per Minute': None,
-            'Description': 'Overall Time Window'
         })
 
         # Valid periods within this window
@@ -38,12 +38,12 @@ def create_summary_data(
                     60 if duration > 0 else None
 
                 summary_data.append({
+                    'Description': 'Valid Period',
                     'Start Time': valid_start,
                     'End Time': valid_end,
                     'Number of Peaks': num_valid_peaks,
                     'Duration (s)': duration,
                     'Peaks per Minute': ppm,
-                    'Description': 'Valid Period'
                 })
 
     return summary_data
@@ -51,11 +51,15 @@ def create_summary_data(
 
 def export_data_to_excel(
     summary_data: List[Dict[str, Any]],
-    all_metrics: Dict[str, Dict[str, pd.DataFrame]],
+    all_metrics: Dict[str, Dict[str, Any]],
     data_file_path: str
 ) -> None:
     """
-    Export summary and detailed respiratory analysis results to Excel.
+    Export all metrics to Excel with 4 clear sheets:
+    1. Summary Data
+    2. Per Bin
+    3. Per Period
+    4. Per Window
     """
     try:
         summary_df = pd.DataFrame(summary_data)
@@ -70,38 +74,53 @@ def export_data_to_excel(
         excel_filename = f'{file_base}_MRP_analysis_{current_date}_sleep_analysis.xlsx'
         excel_path = os.path.join(analysis_folder, excel_filename)
 
+        # Prepare the 3 detailed sheets
+        per_bin_rows = []
+        per_period_rows = []
+        per_window_rows = []
+
+        for window_key, window_content in all_metrics.items():
+            # Window-level summary
+            window_summary = window_content.get("CombinedSummary", {})
+            if window_summary:
+                window_row = {"Window": window_key, **window_summary}
+                per_window_rows.append(window_row)
+
+            for period_name, period_data in window_content.get("Periods", {}).items():
+                # Binned rows
+                binned_df = period_data.get("Binned", pd.DataFrame())
+                if not binned_df.empty:
+                    binned_df = binned_df.copy()
+                    binned_df.insert(0, "Period", period_name)
+                    binned_df.insert(0, "Window", window_key)
+                    per_bin_rows.append(binned_df)
+
+                # Period summary
+                period_summary = period_data.get("Summary", {})
+                if period_summary:
+                    period_row = {
+                        "Window": window_key,
+                        "Period": period_name,
+                        **period_summary
+                    }
+                    per_period_rows.append(period_row)
+
+        # Combine binned rows into one DataFrame
+        per_bin_df = pd.concat(
+            per_bin_rows, ignore_index=True) if per_bin_rows else pd.DataFrame()
+        per_period_df = pd.DataFrame(per_period_rows)
+        per_window_df = pd.DataFrame(per_window_rows)
+
+        # Write to Excel
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='Summary Data', index=False)
-
-            for window, periods in all_metrics.items():
-                window_data = []
-                for period_index, (period_name, metrics_df) in enumerate(periods.items(), start=1):
-                    window_data.append([f'Valid Period {period_index}'])
-                    window_data.append(metrics_df.columns.tolist())
-                    window_data.extend(metrics_df.values.tolist())
-                    window_data.append([])
-
-                window_df = pd.DataFrame(window_data)
-
-                clean_window = ''.join(c if c.isalnum() or c in (
-                    ' ', '_') else '_' for c in window)
-                clean_window = clean_window[:31]  # Excel limit
-
-                window_df.to_excel(
-                    writer, sheet_name=clean_window, index=False, header=False)
+            per_bin_df.to_excel(writer, sheet_name='Per Bin', index=False)
+            per_period_df.to_excel(
+                writer, sheet_name='Per Period', index=False)
+            per_window_df.to_excel(
+                writer, sheet_name='Per Window', index=False)
 
         print(f'Data successfully exported to {excel_path}')
 
     except Exception as e:
         print(f'Failed to export data to Excel: {e}')
-
-
-
-# summary_data.append({
-#     'Start Time': valid_start,
-#     'End Time': valid_end,
-#     'Number of Peaks': num_valid_peaks,
-#     'Duration (s)': valid_end - valid_start,
-#     'Peaks per Minute': (num_valid_peaks / (valid_end - valid_start)) * 60,
-#     'Description': 'Valid Period'
-# })

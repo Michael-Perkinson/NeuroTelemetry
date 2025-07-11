@@ -6,10 +6,9 @@ import numpy as np
 from datetime import datetime
 from scipy.signal import detrend, savgol_filter
 
-from src.core.adaptive_algorithms import butter_lowpass_filter
+from src.core.adaptive_algorithms import butter_lowpass_filter, compute_first_derivative
 from src.core.logger import log_info, log_exception
 from src.core.data_file_parser import detect_skip_rows
-
 
 def extract_and_process_data(
     data: pd.DataFrame,
@@ -70,7 +69,8 @@ def extract_and_process_data(
     activity_data: pd.DataFrame = downsampled_activity[[
         'TimeSinceReference', 'Activity']].copy()
 
-    pressure_data = preprocess_pressure_data(pressure_data)
+    pressure_data = preprocess_pressure_data(
+        pressure_data, pressure_sample_rate)
 
     if behaviour_data is not None:
         behaviour_data = adjust_behaviours(behaviour_data, total_time_diff)
@@ -86,11 +86,8 @@ def split_and_parse_data(
 
     meta_data = data.iloc[:skip_rows]
     numerical_data = data.iloc[skip_rows:]
-    
+
     numerical_data.reset_index(drop=True, inplace=True)
-    print('looking')
-    print(meta_data)
-    print(numerical_data)
     
     # Ensure numerical_data has exactly 4 columns
     if numerical_data.shape[1] != 4:
@@ -101,11 +98,11 @@ def split_and_parse_data(
             for i in range(missing_cols):
                 numerical_data[f'pad{i}'] = 0
 
-
-    numerical_data.columns = ['DateTime', 'Pressure', 'Temp', 'Activity']
+    numerical_data.columns = ['DateTime',
+                              'Pressure', 'Temp', 'Activity']
 
     numerical_data['DateTime'] = numerical_data['DateTime'].str.strip()
-    
+
     numerical_data['Pressure'] = pd.to_numeric(
         numerical_data['Pressure'], errors='coerce')
     numerical_data['Temp'] = pd.to_numeric(
@@ -131,7 +128,6 @@ def split_and_parse_data(
         print(invalid_dates.head())
 
     return meta_data, numerical_data
-
 
 
 def align_and_clean_datetime(
@@ -185,11 +181,15 @@ def extract_sample_rates(
     return pressure_sample_rate, temp_sample_rate, activity_sample_rate
 
 
-def preprocess_pressure_data(pressure_data: pd.DataFrame) -> pd.DataFrame:
+def preprocess_pressure_data(pressure_data: pd.DataFrame, pressure_sample_rate: float) -> pd.DataFrame:
     """Preprocess pressure signal by detrending, low-pass filtering, and smoothing."""
 
+    # Always copy to avoid SettingWithCopyWarning
+    pressure_data = pressure_data.copy()
+
     # Interpolate missing values
-    pressure_data['Pressure'].interpolate(method='linear', inplace=True)
+    pressure_data['Pressure'] = pressure_data['Pressure'].interpolate(
+        method='linear')
 
     # Drop trailing NaNs if any
     last_valid_index = pressure_data['Pressure'].last_valid_index()
@@ -197,12 +197,11 @@ def preprocess_pressure_data(pressure_data: pd.DataFrame) -> pd.DataFrame:
     pressure_data = pressure_data.loc[:last_valid_index]
 
     # Detrend
-    detrended = detrend(np.asarray(
-        pressure_data['Pressure'].to_numpy(dtype='float64')), type='linear')
+    detrended = detrend(pressure_data['Pressure'].to_numpy(
+        dtype='float64'), type='linear')
 
     # Butterworth low-pass filter
-    filtered = butter_lowpass_filter(
-        detrended, cutoff_hz=10, fs=500)
+    filtered = butter_lowpass_filter(detrended, cutoff_hz=10, fs=500)
 
     # Ensure window is odd and fits signal length
     window = min(35, len(filtered) - 1)
@@ -211,12 +210,16 @@ def preprocess_pressure_data(pressure_data: pd.DataFrame) -> pd.DataFrame:
 
     # Savitzky-Golay smoothing
     smoothed = savgol_filter(filtered, window_length=window, polyorder=2)
+    dvdt = compute_first_derivative(filtered, pressure_sample_rate)
 
-    # Update 'Pressure' column with smoothed data
+    # Update DataFrame
     pressure_data['SmoothedPressure'] = smoothed
+    pressure_data['dvdt'] = dvdt
+
     pressure_data.reset_index(drop=True, inplace=True)
 
     return pressure_data
+
 
 
 def adjust_behaviours(

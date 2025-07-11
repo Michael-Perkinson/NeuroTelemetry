@@ -10,7 +10,7 @@ from src.core.export_graphs import (
 from src.core.file_handling import create_folders_for_graphs, list_files
 from src.core.adaptive_algorithms import get_time_bounds
 from src.core.period_analysis import find_valid_periods
-from src.core.peak_detection import analyse_shoulders
+from src.core.peak_detection import analyse_peaks
 from src.core.event_file_parser import read_and_process_event_file, select_time_windows
 from src.core.data_file_parser import retrieve_telemetry_data
 from src.core.data_alignment import extract_and_process_data
@@ -54,6 +54,7 @@ def run_analysis_pipeline(
     buffer_before: int,
     buffer_after: int,
     min_duration: int,
+    bin_size_sec: int,
     output_path: Path,
     log_callback=None
 ):
@@ -94,10 +95,9 @@ def run_analysis_pipeline(
     log("Analyzing shoulders...")
 
     results = {
-        f"{start}-{end}": analyse_shoulders(
+        f"{start}-{end}": analyse_peaks(
             time_windows=[(start, end)],
             pressure_data=pressure_data,
-            dvdt=None
         )
         for start, end in time_windows
     }
@@ -113,10 +113,11 @@ def run_analysis_pipeline(
 
     log("Finding valid periods...")
     valid_peak_times_all, valid_pre_peak_times_all, updated_valid_periods, all_metrics = find_valid_periods(
-        results, pressure_data, temp_data, activity_data, time_windows
+        results, pressure_data, temp_data, activity_data, time_windows, bin_size_sec
     )
 
     min_time, max_time = get_time_bounds(pressure_data)
+
     summary_data = create_summary_data(
         valid_peak_times_all, updated_valid_periods, time_windows)
 

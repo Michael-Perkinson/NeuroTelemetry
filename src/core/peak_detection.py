@@ -10,7 +10,7 @@ def find_shoulders(
     peak_idx: int,
     threshold_factor: float = 0.1
 ) -> int:
-    """Method 1: First derivative threshold approach with zero-crossing constraint"""
+    """First derivative threshold approach with zero-crossing constraint"""
     if len(dvdt_seg) == 0:
         return start_idx
 
@@ -20,7 +20,7 @@ def find_shoulders(
             zero_crossings.append(i + 1)
 
     if not zero_crossings:
-        closest_to_zero_idx = np.argmin(np.abs(dvdt_seg))
+        closest_to_zero_idx = int(np.argmin(np.abs(dvdt_seg)))
         if dvdt_seg[closest_to_zero_idx] > -0.5:
             zero_crossings = [closest_to_zero_idx]
 
@@ -48,7 +48,7 @@ def find_shoulders(
         print("Used fallback to steepest point")
         shoulder_rel = min_slope_idx
 
-    return start_idx + search_offset + shoulder_rel
+    return int(start_idx + search_offset + shoulder_rel)
 
 
 def find_peaks_and_shoulders(
@@ -57,11 +57,11 @@ def find_peaks_and_shoulders(
     dvdt: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[int]]:
     
-    time_win = time.values
+    time_win = np.asarray(time.values)
     pressure_win = pressure
     dvdt_win = dvdt
 
-    peaks, _ = find_peaks(-pressure_win, prominence=3, distance=100)
+    peaks, _ = find_peaks(-pressure_win, prominence=3, distance=50)
 
     shoulders: List[int] = []
     for i, pk in enumerate(peaks):
@@ -73,10 +73,9 @@ def find_peaks_and_shoulders(
     return time_win, pressure_win, dvdt_win, peaks, shoulders
 
 
-def analyse_shoulders(
+def analyse_peaks(
     time_windows: List[Tuple[float, float]],
     pressure_data: pd.DataFrame,
-    dvdt: pd.Series
 ) -> List[
     Tuple[
         float, float, np.ndarray, pd.Series, np.ndarray, pd.Series
@@ -89,11 +88,11 @@ def analyse_shoulders(
             pressure_data['TimeSinceReference'] <= end_time)
         smoothed_window = pressure_data.loc[window_mask, 'SmoothedPressure']
         pressure_data_window = pressure_data[window_mask]
-        dvdt_window = dvdt[window_mask]
+        dvdt_window = pressure_data.loc[window_mask, 'dvdt']
 
         smoothed_array = smoothed_window.to_numpy()
         dvdt_array = dvdt_window.to_numpy()
-        time_array = pressure_data_window['TimeSinceReference'].to_numpy()
+        time_array = pressure_data_window['TimeSinceReference']
 
         _, _, _, peaks, shoulders = find_peaks_and_shoulders(
             time_array, smoothed_array, dvdt_array
