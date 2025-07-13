@@ -1,12 +1,11 @@
-name: Build and Upload Release EXE
+name: Build and Upload Release EXEs
 
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -23,14 +22,53 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE
+      - name: Build Windows EXE
         run: |
           pyinstaller --onefile --windowed --name "PressureAnalyzer" main.py
 
-      - name: Upload EXE to GitHub Release
+      - name: Upload Windows EXE
         uses: softprops/action-gh-release@v2
         with:
           files: dist/PressureAnalyzer.exe
-          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.10
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install py2app
+          brew install create-dmg
+
+      - name: Build macOS .app
+        run: |
+          python setup.py py2app
+
+      - name: Create .dmg installer
+        run: |
+          create-dmg \
+            --volname "PressureAnalyzer" \
+            --window-pos 200 120 \
+            --window-size 500 300 \
+            --icon-size 100 \
+            --app-drop-link 400 150 \
+            dist/PressureAnalyzer.app \
+            dist/
+
+      - name: Upload macOS DMG
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PressureAnalyzer.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
