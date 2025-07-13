@@ -3,12 +3,14 @@ from typing import Optional, Tuple, Dict, List
 from copy import deepcopy
 import pandas as pd
 import numpy as np
+import re
 from datetime import datetime
 from scipy.signal import detrend, savgol_filter
 
 from src.core.adaptive_algorithms import butter_lowpass_filter, compute_first_derivative
 from src.core.logger import log_info, log_exception
 from src.core.data_file_parser import detect_skip_rows
+
 
 def extract_and_process_data(
     data: pd.DataFrame,
@@ -88,7 +90,7 @@ def split_and_parse_data(
     numerical_data = data.iloc[skip_rows:]
 
     numerical_data.reset_index(drop=True, inplace=True)
-    
+
     # Ensure numerical_data has exactly 4 columns
     if numerical_data.shape[1] != 4:
         if numerical_data.shape[1] > 4:
@@ -109,6 +111,11 @@ def split_and_parse_data(
         numerical_data['Temp'], errors='coerce')
     numerical_data['Activity'] = pd.to_numeric(
         numerical_data['Activity'], errors='coerce')
+
+    # Clean up the DateTime column to remove milliseconds after AM/PM if present
+    numerical_data['DateTime'] = numerical_data['DateTime'].astype(str).str.replace(
+        r'(?i)(am|pm)\.\d+', r'\1', regex=True
+    )
 
     try:
         numerical_data['DateTime'] = pd.to_datetime(
@@ -219,7 +226,6 @@ def preprocess_pressure_data(pressure_data: pd.DataFrame, pressure_sample_rate: 
     pressure_data.reset_index(drop=True, inplace=True)
 
     return pressure_data
-
 
 
 def adjust_behaviours(

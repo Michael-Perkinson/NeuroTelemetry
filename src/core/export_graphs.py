@@ -159,7 +159,13 @@ def create_interactive_plot(
     if len(peak_times) > 0:
         peak_series = pressure_df.set_index('TimeSinceReference')[
             'SmoothedPressure']
-        peak_pressures = peak_series.reindex(peak_times)
+
+        # Ensure both Series and target index are unique
+        peak_series_unique = peak_series[~peak_series.index.duplicated(keep='first')]
+        peak_times_unique = pd.Index(peak_times).drop_duplicates()
+        peak_pressures = peak_series_unique.reindex(peak_times_unique)
+
+
         peak_pressures = peak_pressures.dropna()
         peak_times_filtered = [t for t, v in zip(
             peak_times, peak_pressures) if not pd.isna(v)]
@@ -232,7 +238,13 @@ def create_static_plot(
     if len(peak_times) > 0:
         peak_series = pressure_df.set_index('TimeSinceReference')[
             'SmoothedPressure']
-        peak_pressures = peak_series.reindex(peak_times)
+
+        # Ensure both Series and target index are unique
+        peak_series_unique = peak_series[~peak_series.index.duplicated(keep='first')]
+        peak_times_unique = pd.Index(peak_times).drop_duplicates()
+        peak_pressures = peak_series_unique.reindex(peak_times_unique)
+
+
         peak_pressures = peak_pressures.dropna()
         peak_times_filtered = [t for t, v in zip(
             peak_times, peak_pressures) if not pd.isna(v)]
