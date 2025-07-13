@@ -1,8 +1,13 @@
-name: Build and Upload Release EXEs
+name: Build and Upload Artifacts
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'  # Trigger on tags like v1.0.0, v2.3.1, etc.
+
+permissions:
+  contents: read
+  actions: write
 
 jobs:
   build-windows:
@@ -27,11 +32,10 @@ jobs:
           pyinstaller --onefile --windowed --name "PressureAnalyzer" main.py
 
       - name: Upload Windows EXE
-        uses: softprops/action-gh-release@v2
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/PressureAnalyzer.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: PressureAnalyzer-Windows
+          path: dist/PressureAnalyzer.exe
 
   build-macos:
     runs-on: macos-latest
@@ -55,7 +59,7 @@ jobs:
         run: |
           python setup.py py2app
 
-      - name: Create .dmg installer
+      - name: Create macOS .dmg
         run: |
           create-dmg \
             --volname "PressureAnalyzer" \
@@ -66,9 +70,8 @@ jobs:
             dist/PressureAnalyzer.app \
             dist/
 
-      - name: Upload macOS DMG
-        uses: softprops/action-gh-release@v2
+      - name: Upload macOS .dmg
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/PressureAnalyzer.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: PressureAnalyzer-macOS
+          path: dist/PressureAnalyzer.dmg
