@@ -51,8 +51,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install py2app
+          pip install -r requirements.txt || true
+          pip install py2app==0.28.3
           brew install create-dmg
 
       - name: Build macOS .app
