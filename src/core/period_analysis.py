@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import List, Tuple, Dict, Any
 
-from src.core.respiratory_metrics import calculate_binned_period_metrics, calculate_valid_period_metrics, calculate_combined_period_metrics
+from src.core.respiratory_metrics import calculate_binned_period_metrics, calculate_valid_period_metrics, summarize_respiratory_cycles
 
 
 def find_valid_periods(
@@ -29,6 +29,8 @@ def find_valid_periods(
     valid_pre_peak_times_all = []
     updated_valid_periods = []
     all_metrics: Dict[str, Dict[str, Any]] = {}
+    all_peak_series: List[pd.Series] = []
+    all_trough_series: List[pd.Series] = []
 
     for window_start_time, window_end_time in time_windows:
         window_key = f"{window_start_time}-{window_end_time}"
@@ -38,7 +40,8 @@ def find_valid_periods(
             continue
 
         window_periods = {}
-        window_all_period_metrics = []
+        window_all_peak_series: List[pd.Series] = []
+        window_all_trough_series: List[pd.Series] = []
 
         for result in window_results:
             start_time, end_time, raw_peaks, peak_times, raw_pre_peak_indices, pre_peak_times = result
@@ -97,32 +100,42 @@ def find_valid_periods(
                     period_trough_times,
                     pressure_data
                 )
-                
-                window_all_period_metrics.append(summary_metrics)
-                print('summary_metrics', summary_metrics)
 
                 # Store
                 window_periods[period_name] = {
                     "Binned": binned_df,
                     "Summary": summary_metrics
                 }
+                window_all_peak_series.append(period_peak_times)
+                window_all_trough_series.append(period_trough_times)
+
+                all_peak_series.append(period_peak_times)
+                all_trough_series.append(period_trough_times)
 
                 valid_peak_times_all.extend(period_peak_times)
                 valid_pre_peak_times_all.extend(period_trough_times)
                 updated_valid_periods.append(
                     (period_start_time, period_end_time))
 
-        # Combine metrics from all periods in this window
-        combined_summary = calculate_combined_period_metrics(
-            window_all_period_metrics)
+        window_summary = summarize_respiratory_cycles(
+            window_all_peak_series,
+            window_all_trough_series,
+            pressure_data
+        )
 
         all_metrics[window_key] = {
-            "CombinedSummary": combined_summary,
+            "WindowSummary": window_summary,
             "Periods": window_periods
         }
-
+        
+    global_summary = summarize_respiratory_cycles(
+        all_peak_series,
+        all_trough_series,
+        pressure_data
+    )
+    all_metrics["GlobalSummary"] = global_summary
+    
     return valid_peak_times_all, valid_pre_peak_times_all, updated_valid_periods, all_metrics
-
 
 
 def identify_new_periods(

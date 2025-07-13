@@ -1,3 +1,5 @@
+from pathlib import Path
+from typing import Union
 import os
 import pandas as pd
 import numpy as np
@@ -49,78 +51,100 @@ def create_summary_data(
     return summary_data
 
 
+def insert_blank_rows(dataframes: list[pd.DataFrame], group_key: str) -> pd.DataFrame:
+    """Insert blank rows between group changes (e.g., Period or Window)."""
+    rows = []
+    last_group = None
+    for df in dataframes:
+        if df.empty:
+            continue
+        current_group = df[group_key].iloc[0]
+        if last_group is not None and current_group != last_group:
+            # Append one blank row
+            rows.append(pd.DataFrame(
+                [[""] * len(df.columns)], columns=df.columns))
+        rows.append(df)
+        last_group = current_group
+    return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
+
+
+def build_export_data(all_metrics: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Prepare per-bin, per-period, and per-window dataframes with spacing."""
+    per_bin_rows, per_period_rows, per_window_rows = [], [], []
+
+    for window_key, window_content in all_metrics.items():
+        if window_key == "GlobalSummary":
+            continue
+
+        # Window-level summary
+        window_summary = window_content.get("WindowSummary", {})
+        if window_summary:
+            per_window_rows.append({"Window": window_key, **window_summary})
+
+        for period_name, period_data in window_content.get("Periods", {}).items():
+            # Binned data
+            binned_df = period_data.get("Binned", pd.DataFrame())
+            if not binned_df.empty:
+                binned_df = binned_df.copy()
+                binned_df.insert(0, "Period", period_name)
+                binned_df.insert(0, "Window", window_key)
+                per_bin_rows.append(binned_df)  # ✅ This was missing
+
+            # Summary data
+            period_summary = period_data.get("Summary", {})
+            if period_summary:
+                summary_df = pd.DataFrame([{
+                    "Window": window_key,
+                    "Period": period_name,
+                    **period_summary
+                }])
+                per_period_rows.append(summary_df)
+
+    # Add spacing
+    per_bin_df = insert_blank_rows(per_bin_rows, "Period")
+    per_period_df = insert_blank_rows(per_period_rows, "Window")
+    per_window_df = pd.DataFrame(per_window_rows)
+
+    return per_bin_df, per_period_df, per_window_df
+
+
 def export_data_to_excel(
-    summary_data: List[Dict[str, Any]],
-    all_metrics: Dict[str, Dict[str, Any]],
+    summary_data: list[dict],
+    all_metrics: dict,
     data_file_path: str
 ) -> None:
-    """
-    Export all metrics to Excel with 4 clear sheets:
-    1. Summary Data
-    2. Per Bin
-    3. Per Period
-    4. Per Window
-    """
+    """Export data to Excel with 5 structured sheets."""
     try:
         summary_df = pd.DataFrame(summary_data)
+        global_summary = all_metrics.get("GlobalSummary", {})
+        global_summary_df = pd.DataFrame(
+            [global_summary]) if global_summary else pd.DataFrame()
 
-        file_base = os.path.splitext(os.path.basename(data_file_path))[0]
-        extracted_data_folder = 'extracted_data'
-        analysis_folder = os.path.join(
-            extracted_data_folder, f'{file_base}_MRP_analysis')
-        os.makedirs(analysis_folder, exist_ok=True)
+        per_bin_df, per_period_df, per_window_df = build_export_data(
+            all_metrics)
 
-        current_date = datetime.now().strftime('%Y%m%d')
-        excel_filename = f'{file_base}_MRP_analysis_{current_date}_sleep_analysis.xlsx'
-        excel_path = os.path.join(analysis_folder, excel_filename)
+        # Create file path using pathlib
+        file_base = Path(data_file_path).stem
+        analysis_folder = Path("extracted_data") / f"{file_base}_MRP_analysis"
+        analysis_folder.mkdir(parents=True, exist_ok=True)
+        date_str = datetime.now().strftime('%Y%m%d')
+        excel_path = analysis_folder / \
+            f"{file_base}_MRP_analysis_{date_str}_sleep_analysis.xlsx"
 
-        # Prepare the 3 detailed sheets
-        per_bin_rows = []
-        per_period_rows = []
-        per_window_rows = []
-
-        for window_key, window_content in all_metrics.items():
-            # Window-level summary
-            window_summary = window_content.get("CombinedSummary", {})
-            if window_summary:
-                window_row = {"Window": window_key, **window_summary}
-                per_window_rows.append(window_row)
-
-            for period_name, period_data in window_content.get("Periods", {}).items():
-                # Binned rows
-                binned_df = period_data.get("Binned", pd.DataFrame())
-                if not binned_df.empty:
-                    binned_df = binned_df.copy()
-                    binned_df.insert(0, "Period", period_name)
-                    binned_df.insert(0, "Window", window_key)
-                    per_bin_rows.append(binned_df)
-
-                # Period summary
-                period_summary = period_data.get("Summary", {})
-                if period_summary:
-                    period_row = {
-                        "Window": window_key,
-                        "Period": period_name,
-                        **period_summary
-                    }
-                    per_period_rows.append(period_row)
-
-        # Combine binned rows into one DataFrame
-        per_bin_df = pd.concat(
-            per_bin_rows, ignore_index=True) if per_bin_rows else pd.DataFrame()
-        per_period_df = pd.DataFrame(per_period_rows)
-        per_window_df = pd.DataFrame(per_window_rows)
-
-        # Write to Excel
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
             summary_df.to_excel(writer, sheet_name='Summary Data', index=False)
+            global_summary_df.to_excel(
+                writer, sheet_name='Global Summary', index=False)
             per_bin_df.to_excel(writer, sheet_name='Per Bin', index=False)
             per_period_df.to_excel(
                 writer, sheet_name='Per Period', index=False)
             per_window_df.to_excel(
                 writer, sheet_name='Per Window', index=False)
-
-        print(f'Data successfully exported to {excel_path}')
+            
+        print(f"Exported to {excel_path}")
 
     except Exception as e:
-        print(f'Failed to export data to Excel: {e}')
+        print(f"Export failed: {e}")
+
+
+

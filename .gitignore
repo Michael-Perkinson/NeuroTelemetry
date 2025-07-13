@@ -4,6 +4,12 @@ old_versions/
 extracted_data/
 behaviour_images/
 logs/
+dev_venv/
+dev_env/
+dist/
+build/
+
+PressureAnalyzer.spec
 
 # OS and IDE files
 .DS_Store

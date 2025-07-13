@@ -1,7 +1,10 @@
+from typing import List, Dict
+from typing import List, Dict, Union
 from typing import Dict
 import numpy as np
 import pandas as pd
-from typing import List, Any
+from typing import List, Any, Union
+from numpy.typing import NDArray
 
 
 def calculate_binned_period_metrics(
@@ -107,27 +110,13 @@ def calculate_valid_period_metrics(
     using time-masked peak/trough series where `.index` is aligned to pressure_data.
     """
 
-    print("\n[VALID PERIOD METRICS] Input check:")
-    print(f"  ➤ Peaks: {len(peak_times)}, Troughs: {len(trough_times)}")
-    print(f"  ➤ peak_times index: {peak_times.index[:3].tolist()}")
-    print(f"  ➤ peak_times values: {peak_times.values[:3].tolist()}")
-    print(f"  ➤ trough_times index: {trough_times.index[:3].tolist()}")
-    print(f"  ➤ trough_times values: {trough_times.values[:3].tolist()}")
-
-    # Use the index as the actual sample position
-    corrected_peak_indices = pd.Series(
-        peak_times.index.to_numpy(), index=peak_times.index)
-    corrected_trough_indices = pd.Series(
-        trough_times.index.to_numpy(), index=trough_times.index)
-
     return calculate_respiratory_metrics(
         peak_times,
-        corrected_peak_indices,
-        corrected_trough_indices,
+        peak_times,
+        trough_times,
         pressure_data,
         include_std=True
     )
-
 
 
 def calculate_respiratory_metrics(
@@ -138,82 +127,209 @@ def calculate_respiratory_metrics(
     include_std: bool = False
 ) -> Dict[str, float]:
     """
-    Calculates respiratory metrics (with optional stds) based on peak/trough timing and pressure.
-    All inputs must be pd.Series with pressure_data-aligned indices.
+    Calculates summary respiratory metrics (mean ± std optionally).
     """
 
-    # Step 1: Align peak and trough starts
+    if len(peak_indices) < 2 or len(trough_indices) < 2:
+        return {
+            'T_I_mean': np.nan,
+            'T_E_mean': np.nan,
+            'T_TOT_mean': np.nan,
+            'Duty_Cycle_mean': np.nan,
+            'Respiratory_Drive_mean': np.nan,
+            'Peak_to_Peak_mean': np.nan,
+            'Frequency_Hz': np.nan,
+            'Pressure Difference': np.nan,
+            **({'T_I_std': np.nan, 'T_E_std': np.nan, 'T_TOT_std': np.nan,
+                'Duty_Cycle_std': np.nan, 'Respiratory_Drive_std': np.nan,
+                'Peak_to_Peak_std': np.nan, 'Pressure Difference_std': np.nan} if include_std else {})
+        }
+
+    # Align peak/trough order
     if trough_indices.iloc[0] > peak_indices.iloc[0]:
         peak_indices = peak_indices.iloc[1:]
         period_peaks = period_peaks.iloc[1:]
-
     if peak_indices.iloc[-1] < trough_indices.iloc[-1]:
         trough_indices = trough_indices.iloc[:-1]
 
-    # Step 2: Ensure matching lengths
     min_len = min(len(peak_indices), len(trough_indices))
     peak_indices = peak_indices.iloc[:min_len]
     trough_indices = trough_indices.iloc[:min_len]
-    period_peaks = period_peaks.iloc[:min_len]  # align for consistency
+    period_peaks = period_peaks.iloc[:min_len]
 
-    # Step 3: Time intervals
+    # Time metrics
     peak_vals = peak_indices.values.astype(float)
     trough_vals = trough_indices.values.astype(float)
 
-    T_I = peak_vals - trough_vals  # inspiration time
-    T_E = trough_vals[1:] - peak_vals[:-1]  # expiration time
+    T_I = peak_vals - trough_vals
+    T_E = trough_vals[1:] - peak_vals[:-1]
     T_TOT = T_I[:-1] + T_E
     duty_cycle = T_I[:-1] / T_TOT
 
-    # Step 4: Pressure difference & respiratory drive
-    peak_pressures = np.asarray(
-        pressure_data.loc[peak_indices.index, 'SmoothedPressure'], dtype=float)
-    trough_pressures = np.asarray(
-        pressure_data.loc[trough_indices.index, 'SmoothedPressure'], dtype=float)
-
-    peak_pressures = peak_pressures[:len(T_I)]
-    trough_pressures = trough_pressures[:len(T_I)]
-    PI = np.abs(peak_pressures - trough_pressures)
+    peak_pressures = pressure_data.loc[peak_indices.index,
+                                       'SmoothedPressure'].values.astype(float)
+    trough_pressures = pressure_data.loc[trough_indices.index,
+                                         'SmoothedPressure'].values.astype(float)
+    PI = np.abs(peak_pressures[:len(T_I)] - trough_pressures[:len(T_I)])
     respiratory_drive = PI / T_I
 
-    # Step 5: Peak-to-peak intervals
     peak_to_peak_times = np.diff(peak_vals)
-    frequency_hz = 1 / peak_to_peak_times.mean() if len(peak_to_peak_times) > 0 else np.nan
+    frequencies = 1 / \
+        peak_to_peak_times if len(peak_to_peak_times) > 0 else np.array([])
 
-    metrics: Dict[str, float] = {
-        'T_I_mean': T_I.mean(),
-        'T_E_mean': T_E.mean() if len(T_E) > 0 else np.nan,
-        'T_TOT_mean': T_TOT.mean() if len(T_TOT) > 0 else np.nan,
-        'Duty_Cycle_mean': duty_cycle.mean() if len(duty_cycle) > 0 else np.nan,
-        'Respiratory_Drive_mean': respiratory_drive.mean() if len(respiratory_drive) > 0 else np.nan,
-        'Peak_to_Peak_mean': peak_to_peak_times.mean() if len(peak_to_peak_times) > 0 else np.nan,
-        'Frequency_Hz': frequency_hz,
-        'Pressure Difference': PI.mean() if len(PI) > 0 else np.nan
-    }
+    metrics = {}
 
+    # Mean + std pairs
+    metrics['T_I_mean'] = T_I.mean()
     if include_std:
-        metrics.update({
-            'T_I_std': T_I.std(),
-            'T_E_std': T_E.std() if len(T_E) > 0 else np.nan,
-            'T_TOT_std': T_TOT.std() if len(T_TOT) > 0 else np.nan,
-            'Duty_Cycle_std': duty_cycle.std() if len(duty_cycle) > 0 else np.nan,
-            'Respiratory_Drive_std': respiratory_drive.std() if len(respiratory_drive) > 0 else np.nan,
-            'Peak_to_Peak_std': peak_to_peak_times.std() if len(peak_to_peak_times) > 0 else np.nan,
-            'Pressure Difference_std': PI.std() if len(PI) > 0 else np.nan
-        })
+        metrics['T_I_std'] = T_I.std()
+
+    metrics['T_E_mean'] = T_E.mean() if len(T_E) else np.nan
+    if include_std:
+        metrics['T_E_std'] = T_E.std() if len(T_E) else np.nan
+
+    metrics['T_TOT_mean'] = T_TOT.mean() if len(T_TOT) else np.nan
+    if include_std:
+        metrics['T_TOT_std'] = T_TOT.std() if len(T_TOT) else np.nan
+
+    metrics['Duty_Cycle_mean'] = duty_cycle.mean() if len(
+        duty_cycle) else np.nan
+    if include_std:
+        metrics['Duty_Cycle_std'] = duty_cycle.std() if len(
+            duty_cycle) else np.nan
+
+    metrics['Respiratory_Drive_mean'] = respiratory_drive.mean() if len(
+        respiratory_drive) else np.nan
+    if include_std:
+        metrics['Respiratory_Drive_std'] = respiratory_drive.std() if len(
+            respiratory_drive) else np.nan
+
+    metrics['Peak_to_Peak_mean'] = peak_to_peak_times.mean() if len(
+        peak_to_peak_times) else np.nan
+    if include_std:
+        metrics['Peak_to_Peak_std'] = peak_to_peak_times.std() if len(
+            peak_to_peak_times) else np.nan
+
+    metrics['Frequency_Hz'] = frequencies.mean() if len(
+        frequencies) else np.nan
+    if include_std:
+        metrics['Frequency_Hz_std'] = frequencies.std() if len(
+            frequencies) else np.nan
+
+    metrics['Pressure Difference'] = PI.mean() if len(PI) else np.nan
+    if include_std:
+        metrics['Pressure Difference_std'] = PI.std() if len(PI) else np.nan
 
     return metrics
 
 
-def calculate_combined_period_metrics(
-    list_of_metric_dicts: List[Dict[str, float]]
+def calculate_respiratory_metrics_raw(
+    period_peaks: pd.Series,
+    peak_indices: pd.Series,
+    trough_indices: pd.Series,
+    pressure_data: pd.DataFrame
+) -> Dict[str, Union[np.ndarray, float]]:
+    """
+    Returns raw respiratory cycle metrics per breath (for post-hoc aggregation).
+    """
+
+    if len(peak_indices) < 2 or len(trough_indices) < 2:
+        return {
+            'T_I': np.array([]),
+            'T_E': np.array([]),
+            'T_TOT': np.array([]),
+            'Duty_Cycle': np.array([]),
+            'Drive': np.array([]),
+            'Pressure_Diff': np.array([]),
+            'Peak_to_Peak': np.array([]),
+            'Freq': np.nan
+        }
+
+    if trough_indices.iloc[0] > peak_indices.iloc[0]:
+        peak_indices = peak_indices.iloc[1:]
+        period_peaks = period_peaks.iloc[1:]
+    if peak_indices.iloc[-1] < trough_indices.iloc[-1]:
+        trough_indices = trough_indices.iloc[:-1]
+
+    min_len = min(len(peak_indices), len(trough_indices))
+    peak_indices = peak_indices.iloc[:min_len]
+    trough_indices = trough_indices.iloc[:min_len]
+    period_peaks = period_peaks.iloc[:min_len]
+
+    peak_vals = peak_indices.values.astype(float)
+    trough_vals = trough_indices.values.astype(float)
+
+    T_I = peak_vals - trough_vals
+    T_E = trough_vals[1:] - peak_vals[:-1]
+    T_TOT = T_I[:-1] + T_E
+    duty_cycle = T_I[:-1] / T_TOT
+
+    peak_pressures = pressure_data.loc[peak_indices.index,
+                                       'SmoothedPressure'].values.astype(float)
+    trough_pressures = pressure_data.loc[trough_indices.index,
+                                         'SmoothedPressure'].values.astype(float)
+    PI = np.abs(peak_pressures[:len(T_I)] - trough_pressures[:len(T_I)])
+    respiratory_drive = PI / T_I
+
+    peak_to_peak_times = np.diff(peak_vals)
+    frequency_hz = 1 / peak_to_peak_times.mean() if len(peak_to_peak_times) else np.nan
+
+    return {
+        'T_I': T_I,
+        'T_E': T_E,
+        'T_TOT': T_TOT,
+        'Duty_Cycle': duty_cycle,
+        'Drive': respiratory_drive,
+        'Pressure_Diff': PI,
+        'Peak_to_Peak': peak_to_peak_times,
+        'Freq': frequency_hz
+    }
+
+
+def summarize_respiratory_cycles(
+    all_peaks: List[pd.Series],
+    all_troughs: List[pd.Series],
+    pressure_data: pd.DataFrame
 ) -> Dict[str, float]:
     """
-    Aggregates metrics across all valid periods (mean of means, etc).
+    Computes a summary across all respiratory cycles (from any scope: period, window, or full dataset),
+    using raw per-cycle data. Produces overall mean and std without averaging within subgroups.
     """
-    if not list_of_metric_dicts:
-        return {}
 
-    df = pd.DataFrame(list_of_metric_dicts)
-    combined = df.mean(numeric_only=True).to_dict()
-    return combined
+    metrics = {
+        'T_I': [], 'T_E': [], 'T_TOT': [], 'Duty_Cycle': [],
+        'Drive': [], 'Pressure_Diff': [], 'Peak_to_Peak': [], 'Freq': []
+    }
+
+    for peaks, troughs in zip(all_peaks, all_troughs):
+        if len(peaks) < 2 or len(troughs) < 2:
+            continue
+
+        raw = calculate_respiratory_metrics_raw(
+            peaks, peaks, troughs, pressure_data)
+
+        for key in metrics:
+            val = raw.get(key)
+            if key == 'Freq':
+                if isinstance(val, (float, np.floating)) and not np.isnan(val):
+                    metrics[key].append(float(val))
+            elif val is not None and len(val) > 0:
+                metrics[key].extend(map(float, val))
+
+    def agg(key: str) -> Dict[str, float]:
+        data = metrics[key]
+        return {
+            f'{key}_mean': float(np.mean(data)) if data else np.nan,
+            f'{key}_std': float(np.std(data)) if data else np.nan
+        }
+
+    result = {}
+    for key in ['T_I', 'T_E', 'T_TOT', 'Duty_Cycle', 'Drive', 'Pressure_Diff', 'Peak_to_Peak']:
+        result.update(agg(key))
+
+    result['Frequency_Hz'] = float(
+        np.mean(metrics['Freq'])) if metrics['Freq'] else np.nan
+    result['Frequency_Hz_std'] = float(
+        np.std(metrics['Freq'])) if metrics['Freq'] else np.nan
+
+    return result
