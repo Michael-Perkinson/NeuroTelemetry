@@ -3,7 +3,7 @@ name: Build and Upload Artifacts
 on:
   push:
     tags:
-      - 'v*'  # Trigger on tags like v1.0.0, v2.3.1, etc.
+      - 'v*'
 
 permissions:
   contents: read
@@ -68,11 +68,10 @@ jobs:
             --icon-size 100 \
             --app-drop-link 400 150 \
             dist/PressureAnalyzer.app \
-            dist \
-            --overwrite
+            dist/PressureAnalyzer.dmg
 
       - name: Upload macOS .dmg
         uses: actions/upload-artifact@v4
         with:
           name: PressureAnalyzer-macOS
-          path: dist/*.dmg
+          path: dist/PressureAnalyzer.dmg
