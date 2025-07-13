@@ -25,8 +25,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          pip install Pyside6
           pip install pyinstaller
-
+          
       - name: Build Windows EXE
         run: pyinstaller --onefile --windowed --name "PressureAnalyzer" --hidden-import=PySide6.QtWidgets --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtCore main.py
 
@@ -65,8 +66,8 @@ jobs:
             --window-size 500 300 \
             --icon-size 100 \
             --app-drop-link 400 150 \
-            dist/PressureAnalyzer.app \
-            dist/PressureAnalyzer.dmg
+            dist/PressureAnalyzer.dmg \
+            dist/PressureAnalyzer.app
 
       - name: Upload macOS .dmg
         uses: actions/upload-artifact@v4
