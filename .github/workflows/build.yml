@@ -3,7 +3,7 @@ name: Build and Upload Artifacts
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Trigger on tags like v1.0.0, v2.3.1, etc.
 
 permissions:
   contents: read
@@ -28,14 +28,13 @@ jobs:
           pip install pyinstaller
 
       - name: Build Windows EXE
-        run: >
-            pyinstaller --onefile --windowed --name "PressureAnalyzer"
-            --hidden-import=PySide6.QtWidgets
-            --hidden-import=PySide6.QtGui
-            --hidden-import=PySide6.QtCore
-            --hidden-import=PySide6.QtNetwork
+        run: |
+          pyinstaller --onefile --windowed --name "PressureAnalyzer" ^
+            --hidden-import=PySide6.QtWidgets ^
+            --hidden-import=PySide6.QtGui ^
+            --hidden-import=PySide6.QtCore ^
             main.py
-            
+
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
@@ -72,6 +71,7 @@ jobs:
             --window-size 500 300 \
             --icon-size 100 \
             --app-drop-link 400 150 \
+            --overwrite \
             dist/PressureAnalyzer.dmg \
             dist/PressureAnalyzer.app
 
