@@ -2,21 +2,23 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
   build:
+    name: Build EXE on Windows
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: 3.10
 
       - name: Install dependencies
         run: |
@@ -24,12 +26,12 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build executable
+      - name: Build executable with PyInstaller
         run: |
-          pyinstaller --onefile --windowed main.py --name "PressureAnalyzer"
+          pyinstaller --onefile --windowed --name "PressureAnalyzer" main.py
 
       - name: Upload EXE artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: PressureAnalyzer
           path: dist/PressureAnalyzer.exe
