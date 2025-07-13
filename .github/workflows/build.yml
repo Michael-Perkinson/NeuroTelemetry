@@ -28,14 +28,14 @@ jobs:
           pip install pyinstaller
 
       - name: Build Windows EXE
-        run: |
-          pyinstaller --onefile --windowed --name "PressureAnalyzer" \
-            --hidden-import=PySide6.QtWidgets \
-            --hidden-import=PySide6.QtGui \
-            --hidden-import=PySide6.QtCore \
-            --hidden-import=PySide6.QtNetwork \
+        run: >
+            pyinstaller --onefile --windowed --name "PressureAnalyzer"
+            --hidden-import=PySide6.QtWidgets
+            --hidden-import=PySide6.QtGui
+            --hidden-import=PySide6.QtCore
+            --hidden-import=PySide6.QtNetwork
             main.py
-
+            
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
