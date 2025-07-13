@@ -1,8 +1,9 @@
 name: Build and Upload Release EXE
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
@@ -30,5 +31,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/PressureAnalyzer.exe
+          tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
