@@ -12,6 +12,74 @@ from src.core.logger import log_info, log_exception
 from src.core.data_file_parser import detect_skip_rows
 
 
+def _to_datetime_with_ms(series: pd.Series, dayfirst: bool, sample_rate_hz: float) -> pd.Series:
+    """
+    Vectorized timestamp parsing:
+    - If first row already has .%f → parse all with %f.
+    - Else reconstruct ms from sample rate starting at first timestamp.
+    """
+    s = series.astype(str).str.strip().str.upper()
+    has_ms = bool(re.search(r'\.\d{1,6}\s*(AM|PM)\b', s.iloc[0]))
+
+    if has_ms:
+        fmt = "%d/%m/%Y %I:%M:%S.%f %p" if dayfirst else "%m/%d/%Y %I:%M:%S.%f %p"
+        return pd.to_datetime(s, format=fmt, errors="coerce")
+
+    # No milliseconds → build from first timestamp + sample rate
+    fmt0 = "%d/%m/%Y %I:%M:%S %p" if dayfirst else "%m/%d/%Y %I:%M:%S %p"
+    first_dt = pd.to_datetime(s.iloc[0], format=fmt0, errors="coerce")
+    if pd.isna(first_dt):
+        raise ValueError(f"Could not parse first datetime: {s.iloc[0]}")
+
+    step_us = int(round(1_000_000 / sample_rate_hz))
+    n = len(s)
+    idx = pd.date_range(start=first_dt, periods=n, freq=f"{step_us}us")
+    return pd.Series(idx, index=series.index)
+
+
+def _decide_dayfirst_from_probe(first_dt_str: str, probe_mdy: datetime) -> bool:
+    """
+    Decide if dates are day-first or month-first from the first timestamp and a probe reference.
+    Returns True for day/month/year, False for month/day/year.
+    """
+    # Normalize for matching; works with or without milliseconds
+    s = str(first_dt_str).strip().upper()
+
+    # Extract the two leading numbers (day/month in some order)
+    m = re.match(r"\s*(\d{1,2})/(\d{1,2})/", s)
+    if not m:
+        return False  # fallback to month-first
+
+    a, b = int(m.group(1)), int(m.group(2))
+    pm, pd_ = probe_mdy.month, probe_mdy.day
+
+    # Direct match to probe date
+    if (a, b) == (pm, pd_):
+        return False  # month/day
+    if (a, b) == (pd_, pm):
+        return True   # day/month
+
+    # >12 rule
+    if a > 12:
+        return True
+    if b > 12:
+        return False
+
+    # Final fallback
+    return False
+
+
+def split_data(data: pd.DataFrame, skip_rows: int) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Split the data into meta and numerical data
+    """
+    data = data[0].str.split(',', expand=True)
+    meta_data = data.iloc[:skip_rows]
+    all_numerical_data = data.iloc[skip_rows:].copy().reset_index(drop=True)
+
+    return meta_data, all_numerical_data
+
+
 def extract_and_process_data(
     data: pd.DataFrame,
     behaviour_data: Optional[Dict[str, List[Tuple[int, float, float, float]]]],
@@ -29,7 +97,13 @@ def extract_and_process_data(
 
     skip_rows = detect_skip_rows(data)
 
-    meta_data, numerical_data = split_and_parse_data(data, skip_rows)
+    meta_data, all_numerical_data = split_data(data, skip_rows)
+
+    pressure_sample_rate, temp_sample_rate, activity_sample_rate = extract_sample_rates(
+        meta_data)
+
+    numerical_data = parse_numerical_data(
+        all_numerical_data, probe_reference_timestamp, pressure_sample_rate)
 
     numerical_data, new_reference_timestamp, removed_nan_time_diff = align_and_clean_datetime(
         numerical_data, probe_reference_timestamp
@@ -48,9 +122,6 @@ def extract_and_process_data(
     ).dt.total_seconds()
     numerical_data['TimeSinceReference'] = pd.to_numeric(
         numerical_data['TimeSinceReference'], errors='coerce')
-
-    pressure_sample_rate, temp_sample_rate, activity_sample_rate = extract_sample_rates(
-        meta_data)
 
     temp_interval: int = int(pressure_sample_rate / temp_sample_rate)
     activity_interval: int = int(pressure_sample_rate / activity_sample_rate)
@@ -80,61 +151,43 @@ def extract_and_process_data(
     return pressure_data, temp_data, activity_data, numerical_data, new_reference_timestamp
 
 
-def split_and_parse_data(
-    data: pd.DataFrame,
-    skip_rows: int
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    data = data[0].str.split(',', expand=True)
-
-    meta_data = data.iloc[:skip_rows]
-    numerical_data = data.iloc[skip_rows:]
-
-    numerical_data.reset_index(drop=True, inplace=True)
-
-    # Ensure numerical_data has exactly 4 columns
-    if numerical_data.shape[1] != 4:
-        if numerical_data.shape[1] > 4:
-            numerical_data = numerical_data.iloc[1:, :4]
+def parse_numerical_data(
+    all_numerical_data: pd.DataFrame,
+    probe_reference_timestamp: datetime,  # always m/d/Y %I:%M:%S %p
+    pressure_sample_rate: float
+) -> pd.DataFrame:
+    # Ensure 4 cols
+    if all_numerical_data.shape[1] != 4:
+        if all_numerical_data.shape[1] > 4:
+            all_numerical_data = all_numerical_data.iloc[1:, :4]
         else:
-            missing_cols = 4 - numerical_data.shape[1]
-            for i in range(missing_cols):
-                numerical_data[f'pad{i}'] = 0
+            for i in range(4 - all_numerical_data.shape[1]):
+                all_numerical_data[f'pad{i}'] = 0
 
-    numerical_data.columns = ['DateTime',
-                              'Pressure', 'Temp', 'Activity']
+    numerical_data = all_numerical_data.copy()
 
-    numerical_data['DateTime'] = numerical_data['DateTime'].str.strip()
+    numerical_data.columns = ['DateTime', 'Pressure', 'Temp', 'Activity']
 
-    numerical_data['Pressure'] = pd.to_numeric(
-        numerical_data['Pressure'], errors='coerce')
-    numerical_data['Temp'] = pd.to_numeric(
-        numerical_data['Temp'], errors='coerce')
-    numerical_data['Activity'] = pd.to_numeric(
-        numerical_data['Activity'], errors='coerce')
+    # Convert numeric columns
+    for c in ['Pressure', 'Temp', 'Activity']:
+        numerical_data[c] = pd.to_numeric(numerical_data[c], errors='coerce')
 
-    # Clean up the DateTime column to remove milliseconds after AM/PM if present
-    numerical_data['DateTime'] = numerical_data['DateTime'].astype(str).str.replace(
-        r'(?i)(am|pm)\.\d+', r'\1', regex=True
+    # Decide order from probe vs first row
+    first_str = str(numerical_data['DateTime'].iloc[0])
+    dayfirst = _decide_dayfirst_from_probe(
+        first_str, probe_reference_timestamp)
+
+    # Parse or reconstruct ms
+    numerical_data['DateTime'] = _to_datetime_with_ms(
+        numerical_data['DateTime'], dayfirst=dayfirst, sample_rate_hz=pressure_sample_rate
     )
 
-    try:
-        numerical_data['DateTime'] = pd.to_datetime(
-            numerical_data['DateTime'],
-            format='%m/%d/%Y %I:%M:%S.%f %p',
-            errors='raise'
-        )
-    except ValueError as e:
-        print(f"Parsing failed: {e}")
-        numerical_data['DateTime'] = pd.to_datetime(
-            numerical_data['DateTime'], errors='coerce')
+    invalid = numerical_data['DateTime'].isna().sum()
+    if invalid:
+        print(f"{invalid} DateTime values could not be parsed. First few bad rows:")
+        print(numerical_data[numerical_data['DateTime'].isna()].head())
 
-    # Step 7: Warn if any timestamps couldn't be parsed
-    invalid_dates = numerical_data[numerical_data['DateTime'].isna()]
-    if not invalid_dates.empty:
-        print("Some DateTime values could not be parsed. Here are the first few invalid entries:")
-        print(invalid_dates.head())
-
-    return meta_data, numerical_data
+    return numerical_data
 
 
 def align_and_clean_datetime(

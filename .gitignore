@@ -40,3 +40,4 @@ venv/
 # Packaging artifacts
 *.egg-info/
 .gitignore
+new_data_alignment.py
