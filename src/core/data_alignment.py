@@ -88,9 +88,9 @@ def extract_and_process_data(
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, datetime]:
 
     probe_reference_timestamp: datetime = datetime.strptime(
-        probe_date_time, '%m/%d/%Y %I:%M:%S %p')
+        probe_date_time, '%d/%m/%Y %I:%M:%S %p')
     video_reference_timestamp: datetime = datetime.strptime(
-        video_date_time, '%m/%d/%Y %I:%M:%S %p')
+        video_date_time, '%d/%m/%Y %I:%M:%S %p')
 
     log_info(f'''Probe timestamp: {probe_reference_timestamp}''')
     log_info(f'''Video timestamp: {video_reference_timestamp}''')

@@ -5,50 +5,58 @@ from typing import List, Tuple
 
 
 def find_shoulders(
-    dvdt_seg: np.ndarray,
-    start_idx: int,
-    peak_idx: int,
+    dvdt_segment: np.ndarray,
+    start_index: int,
+    peak_index: int,
     threshold_factor: float = 0.1
 ) -> int:
-    """First derivative threshold approach with zero-crossing constraint"""
-    if len(dvdt_seg) == 0:
-        return start_idx
+    if dvdt_segment.size == 0:
+        return start_index
 
-    zero_crossings: List[int] = []
-    for i in range(len(dvdt_seg) - 1):
-        if dvdt_seg[i] >= 0 and dvdt_seg[i + 1] < 0:
-            zero_crossings.append(i + 1)
+    # Cap at the global minimum (most negative dv/dt) in this segment
+    global_min_index = int(np.argmin(dvdt_segment))
+    if global_min_index <= 0:
+        return start_index  # nothing to the left to search
 
-    if not zero_crossings:
-        closest_to_zero_idx = int(np.argmin(np.abs(dvdt_seg)))
-        if dvdt_seg[closest_to_zero_idx] > -0.5:
-            zero_crossings = [closest_to_zero_idx]
+    dvdt_left_of_min = dvdt_segment[:global_min_index]
 
-    if zero_crossings:
-        search_start = zero_crossings[-1]
-        dvdt_search = dvdt_seg[search_start:]
-        search_offset = search_start
+    # Last +→– zero crossing in the left-of-min region
+    zero_crossing_indices: List[int] = []
+    for i in range(dvdt_left_of_min.size - 1):
+        if dvdt_left_of_min[i] >= 0 and dvdt_left_of_min[i + 1] < 0:
+            zero_crossing_indices.append(i + 1)
+
+    if zero_crossing_indices:
+        search_start_index = zero_crossing_indices[-1]
     else:
-        print(
-            f"Warning: No zero crossing found for peak at {peak_idx}, using full segment")
-        dvdt_search = dvdt_seg
-        search_offset = 0
+        nearest_to_zero_index = int(np.argmin(np.abs(dvdt_left_of_min)))
+        if dvdt_left_of_min[nearest_to_zero_index] > -0.5:
+            search_start_index = nearest_to_zero_index
+        else:
+            search_start_index = 0
+            print(
+                f"Warning: No zero crossing found for peak at {peak_index}, using start of segment")
 
-    if len(dvdt_search) == 0:
-        return start_idx + search_offset
+    if search_start_index >= global_min_index:
+        return int(start_index + global_min_index - 1)
 
-    min_slope = np.min(dvdt_search)
-    min_slope_idx = np.argmin(dvdt_search)
-    threshold = min_slope * threshold_factor
-    steep_points = np.where(dvdt_search <= threshold)[0]
+    search_region = dvdt_segment[search_start_index:global_min_index]
+    if search_region.size == 0:
+        return int(start_index + search_start_index)
 
-    if len(steep_points) > 0:
-        shoulder_rel = steep_points[0]
+    # Threshold relative to the minimum within the search region
+    local_min_index = int(np.argmin(search_region))
+    local_min_value = float(search_region[local_min_index])
+    threshold_value = local_min_value * threshold_factor
+
+    below_threshold_indices = np.flatnonzero(search_region <= threshold_value)
+    if below_threshold_indices.size > 0:
+        shoulder_offset = int(below_threshold_indices[0])
     else:
-        print("Used fallback to steepest point")
-        shoulder_rel = min_slope_idx
+        # Fallback: one sample before the global minimum
+        shoulder_offset = (global_min_index - 1) - search_start_index
 
-    return int(start_idx + search_offset + shoulder_rel)
+    return int(start_index + search_start_index + shoulder_offset)
 
 
 def find_peaks_and_shoulders(
@@ -97,7 +105,7 @@ def analyse_peaks(
         _, _, _, peaks, shoulders = find_peaks_and_shoulders(
             time_array, smoothed_array, dvdt_array
         )
-
+        
         peaks = np.array(peaks)
         shoulders = np.array(shoulders)
 

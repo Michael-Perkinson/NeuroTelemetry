@@ -58,7 +58,7 @@ def run_analysis_pipeline(
     output_path: Path,
     log_callback=None
 ):
-    def log(msg):
+    def log(msg: str):
         if log_callback:
             log_callback(msg)
         else:

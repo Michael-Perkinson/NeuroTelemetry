@@ -155,7 +155,7 @@ class DataConfigGUI(QWidget):
         lbl = QLabel(label)
         lbl.setFixedWidth(180)
         dt = QDateTimeEdit()
-        dt.setDisplayFormat("MM/dd/yyyy hh:mm:ss AP")
+        dt.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
         dt.setDateTime(QDateTime.currentDateTime())
         dt.setCalendarPopup(True)
         layout.addWidget(lbl)
@@ -207,8 +207,8 @@ class DataConfigGUI(QWidget):
             self.log(f"Event rows: {len(event_df)}")
 
             # Extract values from GUI
-            probe_time_str = self.probe_time.dateTime().toString("MM/dd/yyyy hh:mm:ss AP")
-            video_time_str = self.video_time.dateTime().toString("MM/dd/yyyy hh:mm:ss AP")
+            probe_time_str = self.probe_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP")
+            video_time_str = self.video_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP")
             behaviour_to_plot = self.behavior_input.text()
             buffer_before = self.buffer_before.value()
             buffer_after = self.buffer_after.value()

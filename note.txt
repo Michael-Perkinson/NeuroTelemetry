@@ -31,3 +31,7 @@ Frequency come out properly
 7850
 
 
+C:\Users\permi73p\Documents\Code\pressure_analysis\data\Day 2 (25-04-24) Pro - this is the NaNs file
+
+25/04/2024 10:05:18 AM
+25/04/2024 10:07:06 AM  
