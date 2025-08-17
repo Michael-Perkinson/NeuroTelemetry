@@ -11,16 +11,20 @@ REQUIRED_COLUMNS = {
 
 
 def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
-    """Read and standardize a behavior event CSV."""
+    """Read and standardize a behavior event CSV (case-insensitive)."""
     df = pd.read_csv(event_file_path)
-    df.columns = [col.lower() for col in df.columns]
+
+    # Lowercase and strip whitespace from all columns
+    df.columns = [col.strip().lower() for col in df.columns]
 
     column_map = {}
     for key, match_str in REQUIRED_COLUMNS.items():
-        matches = [col for col in df.columns if match_str in col]
+        match_str_lower = match_str.lower()
+        matches = [col for col in df.columns if match_str_lower in col]
         if not matches:
             raise ValueError(
-                f"Missing required column containing: '{match_str}'")
+                f"Missing required column containing: '{match_str}' (case-insensitive)"
+            )
         column_map[key] = matches[0]
 
     df['event'] = df[column_map['event']]

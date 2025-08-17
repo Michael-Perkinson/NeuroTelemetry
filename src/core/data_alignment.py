@@ -14,58 +14,60 @@ from src.core.data_file_parser import detect_skip_rows
 
 def _to_datetime_with_ms(series: pd.Series, dayfirst: bool, sample_rate_hz: float) -> pd.Series:
     """
-    Vectorized timestamp parsing:
-    - If first row already has .%f → parse all with %f.
-    - Else reconstruct ms from sample rate starting at first timestamp.
+    Parse timestamps with optional milliseconds (before or after AM/PM).
+    Falls back to reconstructing ms using sample rate if missing.
     """
-    s = series.astype(str).str.strip().str.upper()
-    has_ms = bool(re.search(r'\.\d{1,6}\s*(AM|PM)\b', s.iloc[0]))
+    s = series.astype(str).str.strip()
 
-    if has_ms:
+    first = s.iloc[0]
+
+    # Case 1: ms before AM/PM
+    if re.search(r"\.\d{1,6}\s*(AM|PM)\b", first, re.IGNORECASE):
         fmt = "%d/%m/%Y %I:%M:%S.%f %p" if dayfirst else "%m/%d/%Y %I:%M:%S.%f %p"
-        return pd.to_datetime(s, format=fmt, errors="coerce")
+        return pd.to_datetime(s, format=fmt, errors="raise")
 
-    # No milliseconds → build from first timestamp + sample rate
+    # Case 2: ms after AM/PM
+    if re.search(r"(AM|PM)\.\d{1,6}\b", first, re.IGNORECASE):
+        fmt = "%d/%m/%Y %I:%M:%S %p.%f" if dayfirst else "%m/%d/%Y %I:%M:%S %p.%f"
+        return pd.to_datetime(s, format=fmt, errors="raise")
+
+    # Case 3: reconstruct
     fmt0 = "%d/%m/%Y %I:%M:%S %p" if dayfirst else "%m/%d/%Y %I:%M:%S %p"
-    first_dt = pd.to_datetime(s.iloc[0], format=fmt0, errors="coerce")
-    if pd.isna(first_dt):
-        raise ValueError(f"Could not parse first datetime: {s.iloc[0]}")
-
+    first_dt = pd.to_datetime(first, format=fmt0, errors="raise")
     step_us = int(round(1_000_000 / sample_rate_hz))
-    n = len(s)
-    idx = pd.date_range(start=first_dt, periods=n, freq=f"{step_us}us")
-    return pd.Series(idx, index=series.index)
+    return pd.date_range(start=first_dt, periods=len(s), freq=f"{step_us}us").to_series(index=series.index)
 
 
-def _decide_dayfirst_from_probe(first_dt_str: str, probe_mdy: datetime) -> bool:
+def _decide_dayfirst_from_probe(first_timestamp_str: str, probe_reference: datetime) -> bool:
     """
-    Decide if dates are day-first or month-first from the first timestamp and a probe reference.
-    Returns True for day/month/year, False for month/day/year.
+    Decide if a date string is day-first (dd/mm/yyyy) or month-first (mm/dd/yyyy),
+    using the first timestamp and a known probe reference date.
     """
-    # Normalize for matching; works with or without milliseconds
-    s = str(first_dt_str).strip().upper()
+    # Clean input string (handles uppercase + stray spaces/milliseconds)
+    ts_str = str(first_timestamp_str).strip().upper()
 
-    # Extract the two leading numbers (day/month in some order)
-    m = re.match(r"\s*(\d{1,2})/(\d{1,2})/", s)
-    if not m:
-        return False  # fallback to month-first
+    # Extract the two leading numbers (potentially day/month in some order)
+    match = re.match(r"\s*(\d{1,2})/(\d{1,2})/", ts_str)
+    if not match:
+        return False  # fallback: assume month/day
 
-    a, b = int(m.group(1)), int(m.group(2))
-    pm, pd_ = probe_mdy.month, probe_mdy.day
+    first_number = int(match.group(1))
+    second_number = int(match.group(2))
+    ref_month, ref_day = probe_reference.month, probe_reference.day
 
-    # Direct match to probe date
-    if (a, b) == (pm, pd_):
+    # Case 1: Direct match to reference date
+    if (first_number, second_number) == (ref_month, ref_day):
         return False  # month/day
-    if (a, b) == (pd_, pm):
+    if (first_number, second_number) == (ref_day, ref_month):
         return True   # day/month
 
-    # >12 rule
-    if a > 12:
-        return True
-    if b > 12:
-        return False
+    # Case 2: Disambiguate with >12 rule
+    if first_number > 12:
+        return True   # must be day/month
+    if second_number > 12:
+        return False  # must be month/day
 
-    # Final fallback
+    # Case 3: Still ambiguous → default to month/day
     return False
 
 
@@ -78,6 +80,51 @@ def split_data(data: pd.DataFrame, skip_rows: int) -> Tuple[pd.DataFrame, pd.Dat
     all_numerical_data = data.iloc[skip_rows:].copy().reset_index(drop=True)
 
     return meta_data, all_numerical_data
+
+
+def prepare_numerical_data(
+    meta_data: pd.DataFrame,
+    all_numerical_data: pd.DataFrame
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    """
+    Reorder numerical data columns to [DateTime, Pressure, Temp, Activity]
+    based on the order in the metadata, and return sample rates.
+    """
+    name_map = {
+        "temp": "Temp",
+        "temperature": "Temp",
+        "pressure": "Pressure",
+        "bp": "Pressure",
+        "blood pressure": "Pressure",
+        "activity": "Activity"
+    }
+
+    column_order = {}
+    sample_rates = {}
+    for _, row in meta_data.iterrows():
+        col_label = str(row[0])
+        if col_label.startswith("# Col"):
+            col_num = int(col_label.split(":")[0].split()[2])  # 1-based
+            raw_name = str(row[1]).strip().lower()
+            if raw_name in name_map:
+                signal_name = name_map[raw_name]
+                column_order[signal_name] = col_num - 1  # zero-based
+                sample_rates[signal_name] = float(
+                    str(row[4]).split(":")[1].strip())
+
+    # Reorder columns: DateTime first, then Pressure, Temp, Activity
+    new_order = [0]  # DateTime
+    for col_name in ["Pressure", "Temp", "Activity"]:
+        new_order.append(column_order[col_name])
+
+    all_numerical_data = all_numerical_data.iloc[:, new_order]
+    all_numerical_data.columns = ["DateTime", "Pressure", "Temp", "Activity"]
+
+    # Drop header row from data
+    all_numerical_data = all_numerical_data.drop(
+        index=0).reset_index(drop=True)
+
+    return all_numerical_data, sample_rates
 
 
 def extract_and_process_data(
@@ -99,8 +146,12 @@ def extract_and_process_data(
 
     meta_data, all_numerical_data = split_data(data, skip_rows)
 
-    pressure_sample_rate, temp_sample_rate, activity_sample_rate = extract_sample_rates(
-        meta_data)
+    all_numerical_data, sample_rates = prepare_numerical_data(
+        meta_data, all_numerical_data)
+
+    pressure_sample_rate = sample_rates["Pressure"]
+    temp_sample_rate = sample_rates["Temp"]
+    activity_sample_rate = sample_rates["Activity"]
 
     numerical_data = parse_numerical_data(
         all_numerical_data, probe_reference_timestamp, pressure_sample_rate)
@@ -164,13 +215,14 @@ def parse_numerical_data(
             for i in range(4 - all_numerical_data.shape[1]):
                 all_numerical_data[f'pad{i}'] = 0
 
-    numerical_data = all_numerical_data.copy()
+    numerical_data = all_numerical_data.copy()  # TODO tidy this up
 
     numerical_data.columns = ['DateTime', 'Pressure', 'Temp', 'Activity']
 
     # Convert numeric columns
-    for c in ['Pressure', 'Temp', 'Activity']:
-        numerical_data[c] = pd.to_numeric(numerical_data[c], errors='coerce')
+    numerical_data[['Pressure', 'Temp', 'Activity']] = numerical_data[['Pressure', 'Temp', 'Activity']].apply(
+        pd.to_numeric, errors="coerce"
+    )
 
     # Decide order from probe vs first row
     first_str = str(numerical_data['DateTime'].iloc[0])
@@ -223,22 +275,6 @@ def align_and_clean_datetime(
             "No valid pressure data found. Cannot proceed with analysis.")
 
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
-
-
-def extract_sample_rates(
-    meta_data: pd.DataFrame
-) -> Tuple[float, float, float]:
-
-    col2_row = meta_data[meta_data[0].str.contains('Col 2:')].iloc[0]
-    pressure_sample_rate = float(col2_row[4].split(':')[1].strip())
-
-    col3_row = meta_data[meta_data[0].str.contains('Col 3:')].iloc[0]
-    temp_sample_rate = float(col3_row[4].split(':')[1].strip())
-
-    col4_row = meta_data[meta_data[0].str.contains('Col 4:')].iloc[0]
-    activity_sample_rate = float(col4_row[4].split(':')[1].strip())
-
-    return pressure_sample_rate, temp_sample_rate, activity_sample_rate
 
 
 def preprocess_pressure_data(pressure_data: pd.DataFrame, pressure_sample_rate: float) -> pd.DataFrame:
