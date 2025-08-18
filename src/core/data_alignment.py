@@ -90,6 +90,7 @@ def prepare_numerical_data(
     Reorder numerical data columns to [DateTime, Pressure, Temp, Activity]
     based on the order in the metadata, and return sample rates.
     """
+    # Normalize signal names
     name_map = {
         "temp": "Temp",
         "temperature": "Temp",
@@ -99,30 +100,35 @@ def prepare_numerical_data(
         "activity": "Activity"
     }
 
-    column_order = {}
-    sample_rates = {}
-    for _, row in meta_data.iterrows():
-        col_label = str(row[0])
-        if col_label.startswith("# Col"):
-            col_num = int(col_label.split(":")[0].split()[2])  # 1-based
-            raw_name = str(row[1]).strip().lower()
-            if raw_name in name_map:
-                signal_name = name_map[raw_name]
-                column_order[signal_name] = col_num - 1  # zero-based
-                sample_rates[signal_name] = float(
-                    str(row[4]).split(":")[1].strip())
+    # Filter metadata rows starting with "# Col"
+    mask = meta_data[0].str.startswith("# Col")
+    cols = meta_data.loc[mask, [0, 1, 4]]
+
+    # Extract column numbers (1-based → 0-based)
+    col_nums = cols[0].str.extract(r"# Col\s+(\d+):").astype(int)[0] - 1
+
+    # Normalize raw signal names
+    raw_names = cols[1].astype(str).str.strip().str.lower()
+
+    # Map to canonical names
+    signal_names = raw_names.map(name_map).dropna()
+
+    # Build column_order and sample_rates
+    column_order = dict(zip(signal_names, col_nums.loc[signal_names.index]))
+    sample_rates = dict(
+        zip(signal_names, cols[4].loc[signal_names.index].str.split(
+            ":").str[1].str.strip().astype(float))
+    )
 
     # Reorder columns: DateTime first, then Pressure, Temp, Activity
-    new_order = [0]  # DateTime
-    for col_name in ["Pressure", "Temp", "Activity"]:
-        new_order.append(column_order[col_name])
-
+    new_order = [0] + [column_order[name]
+                       for name in ["Pressure", "Temp", "Activity"]]
     all_numerical_data = all_numerical_data.iloc[:, new_order]
+
     all_numerical_data.columns = ["DateTime", "Pressure", "Temp", "Activity"]
 
-    # Drop header row from data
-    all_numerical_data = all_numerical_data.drop(
-        index=0).reset_index(drop=True)
+    # Drop header row
+    all_numerical_data = all_numerical_data.iloc[1:].reset_index(drop=True)
 
     return all_numerical_data, sample_rates
 

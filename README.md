@@ -91,7 +91,7 @@ This guide shows you how to run the project on your computer, even if you’ve n
    ```
    source venv/bin/activate
    ```
-   You should see `(.venv)` at the start of the line.
+   You should see `(venv)` at the start of the line.
 
 ### 6) Upgrade pip and install requirements
    ```
