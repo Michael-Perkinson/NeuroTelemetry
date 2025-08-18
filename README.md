@@ -84,12 +84,12 @@ This guide shows you how to run the project on your computer, even if you’ve n
 
 ### 4) Create a virtual environment (venv)
    ```
-   python3 -m venv .venv
+   python3 -m venv venv
    ```
 
 ### 5) Activate the virtual environment
    ```
-   source .venv/bin/activate
+   source venv/bin/activate
    ```
    You should see `(.venv)` at the start of the line.
 
@@ -102,14 +102,14 @@ This guide shows you how to run the project on your computer, even if you’ve n
 
 ### 7) Run the program
    ```
-   python main.py
+   python3 main.py
    ```
 
 ### 8) Next time you come back
    ```
    cd /path/to/your/ProjectName
-   source .venv/bin/activate
-   python main.py
+   source venv/bin/activate
+   python3 main.py
    ```
    To stop using the virtual environment:
    ```
