@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Any
 from typing import Optional, Tuple, Dict, List
 from copy import deepcopy
 import pandas as pd
@@ -88,16 +88,16 @@ def prepare_numerical_data(
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
     """
     Reorder numerical data columns to [DateTime, Pressure, Temp, Activity]
-    based on the order in the metadata, and return sample rates.
+    based on metadata. If duplicate signals exist, only the first occurrence
+    is kept. Returns the cleaned numerical data and sample rates.
     """
     # Normalize signal names
     name_map = {
         "temp": "Temp",
         "temperature": "Temp",
         "pressure": "Pressure",
-        "bp": "Pressure",
-        "blood pressure": "Pressure",
-        "activity": "Activity"
+        "activity": "Activity",
+        "act": "Activity"
     }
 
     # Filter metadata rows starting with "# Col"
@@ -113,19 +113,26 @@ def prepare_numerical_data(
     # Map to canonical names
     signal_names = raw_names.map(name_map).dropna()
 
-    # Build column_order and sample_rates
-    column_order = dict(zip(signal_names, col_nums.loc[signal_names.index]))
-    sample_rates = dict(
-        zip(signal_names, cols[4].loc[signal_names.index].str.split(
-            ":").str[1].str.strip().astype(float))
-    )
+    # Build column_order, keeping only first occurrence of each canonical signal
+    column_order = {}
+    for sig, col in zip(signal_names, col_nums.loc[signal_names.index]):
+        if sig not in column_order:
+            column_order[sig] = col
 
     # Reorder columns: DateTime first, then Pressure, Temp, Activity
-    new_order = [0] + [column_order[name]
-                       for name in ["Pressure", "Temp", "Activity"]]
+    available_signals = [sig for sig in ["Pressure", "Temp", "Activity"]
+                         if sig in column_order]
+    new_order = [0] + [column_order[sig] for sig in available_signals]
     all_numerical_data = all_numerical_data.iloc[:, new_order]
 
-    all_numerical_data.columns = ["DateTime", "Pressure", "Temp", "Activity"]
+    all_numerical_data.columns = ["DateTime"] + available_signals
+
+    # Get sample rates for the first occurrence of each signal
+    sample_rates = {}
+    for sig in available_signals:
+        idx = signal_names[signal_names == sig].index[0]
+        rate_str = cols.loc[idx, 4]
+        sample_rates[sig] = float(rate_str.split(":")[1].strip())
 
     # Drop header row
     all_numerical_data = all_numerical_data.iloc[1:].reset_index(drop=True)
@@ -137,109 +144,151 @@ def extract_and_process_data(
     data: pd.DataFrame,
     behaviour_data: Optional[Dict[str, List[Tuple[int, float, float, float]]]],
     probe_date_time: str,
-    video_date_time: str,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, datetime]:
-
-    probe_reference_timestamp: datetime = datetime.strptime(
-        probe_date_time, '%d/%m/%Y %I:%M:%S %p')
-    video_reference_timestamp: datetime = datetime.strptime(
-        video_date_time, '%d/%m/%Y %I:%M:%S %p')
-
-    log_info(f'''Probe timestamp: {probe_reference_timestamp}''')
-    log_info(f'''Video timestamp: {video_reference_timestamp}''')
+    alignment_date_time: str,
+) -> Dict[str, Any]:
+    probe_ref, align_ref = parse_reference_timestamps(
+        probe_date_time, alignment_date_time
+    )
 
     skip_rows = detect_skip_rows(data)
-
     meta_data, all_numerical_data = split_data(data, skip_rows)
 
     all_numerical_data, sample_rates = prepare_numerical_data(
-        meta_data, all_numerical_data)
-
-    pressure_sample_rate = sample_rates["Pressure"]
-    temp_sample_rate = sample_rates["Temp"]
-    activity_sample_rate = sample_rates["Activity"]
-
-    numerical_data = parse_numerical_data(
-        all_numerical_data, probe_reference_timestamp, pressure_sample_rate)
-
-    numerical_data, new_reference_timestamp, removed_nan_time_diff = align_and_clean_datetime(
-        numerical_data, probe_reference_timestamp
+        meta_data, all_numerical_data
     )
 
-    video_time_diff: float = (
-        video_reference_timestamp - probe_reference_timestamp).total_seconds()
-    log_info(f'''Video start time difference: {video_time_diff} seconds''')
+    numerical_data = parse_numerical_data(
+        all_numerical_data, probe_ref, sample_rates
+    )
 
-    total_time_diff: float = video_time_diff + removed_nan_time_diff
+    numerical_data, new_ref, removed_nan_offset = align_and_clean_datetime(
+        numerical_data, probe_ref
+    )
+
+    # bookkeeping only
+    alignment_offset, total_offset = compute_time_offsets(
+        align_ref, probe_ref, removed_nan_offset
+    )
     log_info(
-        f'''Total time difference (video + NaN): {total_time_diff} seconds''')
+        f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s"
+    )
 
-    numerical_data['TimeSinceReference'] = (
-        numerical_data['DateTime'] - new_reference_timestamp
+    # master timebase
+    numerical_data["TimeSinceReference"] = (
+        numerical_data["DateTime"] - new_ref
     ).dt.total_seconds()
-    numerical_data['TimeSinceReference'] = pd.to_numeric(
-        numerical_data['TimeSinceReference'], errors='coerce')
 
-    temp_interval: int = int(pressure_sample_rate / temp_sample_rate)
-    activity_interval: int = int(pressure_sample_rate / activity_sample_rate)
-
-    downsampled_temp: pd.DataFrame = numerical_data.iloc[::temp_interval, [
-        0, 2, 4]].reset_index(drop=True)
-    downsampled_temp.columns = ['DateTime', 'Temp', 'TimeSinceReference']
-
-    downsampled_activity: pd.DataFrame = numerical_data.iloc[::activity_interval, [
-        0, 3, 4]].reset_index(drop=True)
-    downsampled_activity.columns = [
-        'DateTime', 'Activity', 'TimeSinceReference']
-
-    pressure_data: pd.DataFrame = numerical_data[[
-        'TimeSinceReference', 'Pressure']].copy()
-    temp_data: pd.DataFrame = downsampled_temp[[
-        'TimeSinceReference', 'Temp']].copy()
-    activity_data: pd.DataFrame = downsampled_activity[[
-        'TimeSinceReference', 'Activity']].copy()
-
-    pressure_data = preprocess_pressure_data(
-        pressure_data, pressure_sample_rate)
+    # build once, after finalised timeline
+    processed_data = build_output_frames(numerical_data, sample_rates)
 
     if behaviour_data is not None:
-        behaviour_data = adjust_behaviours(behaviour_data, total_time_diff)
+        processed_data["Behaviours"] = adjust_behaviours(
+            behaviour_data, total_offset
+        )
 
-    return pressure_data, temp_data, activity_data, numerical_data, new_reference_timestamp
+    processed_data["ReferenceTimestamp"] = new_ref
+    return processed_data
+
+
+def compute_time_offsets(video_ref, probe_ref, removed_nan):
+    video_diff = (video_ref - probe_ref).total_seconds()
+    total = video_diff + removed_nan
+    return video_diff, total
+
+def parse_reference_timestamps(
+    probe_date_time: str,
+    alignment_date_time: str
+) -> Tuple[datetime, datetime]:
+    probe_ref = datetime.strptime(probe_date_time, "%d/%m/%Y %I:%M:%S %p")
+    align_ref = datetime.strptime(alignment_date_time, "%d/%m/%Y %I:%M:%S %p")
+    return probe_ref, align_ref
+
+
+def build_output_frames(
+    numerical_data: pd.DataFrame,
+    sample_rates: Dict[str, float],
+) -> Dict[str, pd.DataFrame]:
+    """
+    Downsample temp and activity to their native rates.
+    Pressure is passed through if present.
+    """
+
+    processed: Dict[str, pd.DataFrame] = {}
+
+    # Pressure
+    if "Pressure" in numerical_data:
+        pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
+        pressure_rate = sample_rates["Pressure"]
+
+        # 🔑 preprocess here
+        pressure_df = preprocess_pressure_data(pressure_df, pressure_rate)
+
+        processed["Pressure"] = pressure_df
+
+    # Temp
+    if "Temp" in numerical_data:
+        pressure_rate = sample_rates.get("Pressure") or sample_rates["Temp"]
+        temp_rate = sample_rates["Temp"]
+        temp_interval = int(pressure_rate / temp_rate)
+        downsampled = numerical_data.iloc[::temp_interval, [
+            0, 2, 4]].reset_index(drop=True)
+        downsampled.columns = ["DateTime", "Temp", "TimeSinceReference"]
+        processed["Temp"] = downsampled[["TimeSinceReference", "Temp"]].copy()
+
+    # Activity
+    if "Activity" in numerical_data:
+        pressure_rate = sample_rates.get(
+            "Pressure") or sample_rates["Activity"]
+        act_rate = sample_rates["Activity"]
+        act_interval = int(pressure_rate / act_rate)
+        downsampled = numerical_data.iloc[::act_interval, [
+            0, 3, 4]].reset_index(drop=True)
+        downsampled.columns = ["DateTime", "Activity", "TimeSinceReference"]
+        processed["Activity"] = downsampled[[
+            "TimeSinceReference", "Activity"]].copy()
+
+    return processed
 
 
 def parse_numerical_data(
     all_numerical_data: pd.DataFrame,
     probe_reference_timestamp: datetime,  # always m/d/Y %I:%M:%S %p
-    pressure_sample_rate: float
+    sample_rates: Dict[str, float]
 ) -> pd.DataFrame:
-    # Ensure 4 cols
-    if all_numerical_data.shape[1] != 4:
-        if all_numerical_data.shape[1] > 4:
-            all_numerical_data = all_numerical_data.iloc[1:, :4]
-        else:
-            for i in range(4 - all_numerical_data.shape[1]):
-                all_numerical_data[f'pad{i}'] = 0
+    """Parse telemetry dataframe into numeric values with timestamps."""
 
-    numerical_data = all_numerical_data.copy()  # TODO tidy this up
+    # Copy and ensure canonical column names already set
+    numerical_data = all_numerical_data.copy()
 
-    numerical_data.columns = ['DateTime', 'Pressure', 'Temp', 'Activity']
+    # Convert numeric columns (skip DateTime)
+    for col in numerical_data.columns:
+        if col != "DateTime":
+            numerical_data[col] = pd.to_numeric(
+                numerical_data[col], errors="coerce")
 
-    # Convert numeric columns
-    numerical_data[['Pressure', 'Temp', 'Activity']] = numerical_data[['Pressure', 'Temp', 'Activity']].apply(
-        pd.to_numeric, errors="coerce"
-    )
-
-    # Decide order from probe vs first row
+    # Decide date parsing order
     first_str = str(numerical_data['DateTime'].iloc[0])
     dayfirst = _decide_dayfirst_from_probe(
         first_str, probe_reference_timestamp)
 
-    # Parse or reconstruct ms
+    # Pick master rate (prefer Pressure > Temp > Activity)
+    if "Pressure" in sample_rates:
+        master_rate = sample_rates["Pressure"]
+    elif "Temp" in sample_rates:
+        master_rate = sample_rates["Temp"]
+    elif "Activity" in sample_rates:
+        master_rate = sample_rates["Activity"]
+    else:
+        master_rate = 1.0  # fallback
+
+    # Parse timestamps with ms reconstruction if needed
     numerical_data['DateTime'] = _to_datetime_with_ms(
-        numerical_data['DateTime'], dayfirst=dayfirst, sample_rate_hz=pressure_sample_rate
+        numerical_data['DateTime'],
+        dayfirst=dayfirst,
+        sample_rate_hz=master_rate
     )
 
+    # Debug check
     invalid = numerical_data['DateTime'].isna().sum()
     if invalid:
         print(f"{invalid} DateTime values could not be parsed. First few bad rows:")
@@ -252,33 +301,41 @@ def align_and_clean_datetime(
     numerical_data: pd.DataFrame,
     probe_reference_timestamp: datetime
 ) -> Tuple[pd.DataFrame, datetime, float]:
-    """Align and clean numerical data by removing NaNs and adjusting the timestamp reference."""
+    """
+    Clean numerical data by dropping duplicates/NaNs
+    and shift the reference timestamp to the first valid sample.
+    Returns the cleaned data, the new reference timestamp, 
+    and the offset in seconds relative to the original probe reference.
+    """
 
-    removed_nan_time_diff: float = 0.0
-    first_valid_index = numerical_data['Pressure'].first_valid_index()
-
-    if first_valid_index is not None:
-        # Safely get scalar pd.Timestamp
-        datetime_value: pd.Timestamp = numerical_data.at[first_valid_index, 'DateTime']
-
-        # Compute time difference
-        time_diff = datetime_value - probe_reference_timestamp
-        new_reference_timestamp: datetime = probe_reference_timestamp + time_diff
-
-        log_info(
-            f'Time difference between first valid pressure and reference timestamp: {time_diff}')
-
-        # Trim data to start at first valid pressure
-        numerical_data = numerical_data.loc[first_valid_index:].reset_index(
-            drop=True)
-
-        # Track offset caused by dropping NaNs
-        removed_nan_time_diff = time_diff.total_seconds()
-        log_info(
-            f'Time difference due to NaN removal: {removed_nan_time_diff} seconds')
+    # pick anchor column
+    for candidate in ["Pressure", "Temp", "Activity"]:
+        if candidate in numerical_data.columns:
+            anchor_col = candidate
+            break
     else:
         raise ValueError(
-            "No valid pressure data found. Cannot proceed with analysis.")
+            "No usable signal found (Pressure/Temp/Activity missing).")
+
+    # remove duplicate timestamps
+    numerical_data = numerical_data.drop_duplicates(
+        subset="DateTime").reset_index(drop=True)
+
+    # find first valid entry
+    first_valid_index = numerical_data[anchor_col].first_valid_index()
+    if first_valid_index is None:
+        raise ValueError(f"No valid {anchor_col} data found.")
+
+    first_valid_time = numerical_data.at[first_valid_index, "DateTime"]
+
+    # new reference = first valid time
+    new_reference_timestamp = first_valid_time
+    removed_nan_time_diff = (
+        first_valid_time - probe_reference_timestamp).total_seconds()
+
+    # trim rows before first valid entry
+    numerical_data = numerical_data.loc[first_valid_index:].reset_index(
+        drop=True)
 
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
 

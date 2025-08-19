@@ -1,30 +1,24 @@
+# gui_app.py  (updated GUI with optional Photometry mode)
+
 import traceback
-from PySide6.QtWidgets import QScrollArea, QWidget
 from PySide6.QtWidgets import (
     QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QPushButton, QFileDialog, QDateTimeEdit, QCheckBox,
-    QSpinBox, QPlainTextEdit, QMessageBox, QGridLayout
+    QLineEdit, QPushButton, QFileDialog, QDateTimeEdit,
+    QSpinBox, QPlainTextEdit, QMessageBox, QGridLayout, QSizePolicy
 )
-from PySide6.QtWidgets import QSizePolicy
-from PySide6.QtCore import Qt, QDateTime
+from PySide6.QtCore import QDateTime
 from pathlib import Path
-import sys
-from PySide6.QtWidgets import QSizePolicy
 
-from src.controller import load_data
-from src.controller import run_analysis_pipeline
-
+from src.controllers.pressure_controller import load_data, run_pressure_pipeline
+from src.controllers.photometry_controller import run_photometry_pipeline
 
 class DataConfigGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Telemetry Behavior Config")
+        self.setWindowTitle("Telemetry / Photometry Analysis")
         self.setStyleSheet("""
-            QWidget {
-                background-color: #2b2b2b;
-                color: white;
-                font-size: 10pt;
-            }
+            QWidget { background-color: #2b2b2b; color: white; font-size: 10pt; }
+            QLineEdit[readOnly="true"] { background: #1e1e1e; }
         """)
 
         self.main_layout = QVBoxLayout()
@@ -35,8 +29,47 @@ class DataConfigGUI(QWidget):
         self.data_path = self.create_file_selector("Telemetry Data File")
         self.behaviour_path = self.create_file_selector("Behavior Data File")
 
-        # Timestamps
-        self.add_section_title("Timestamp Alignment")
+        # Photometry (optional)
+        self.add_section_title("Photometry (optional)")
+        self.photometry_path = self.create_file_selector(
+            "Photometry Data File (optional)")
+
+        ph_grid = QGridLayout()
+        ph_grid.setHorizontalSpacing(20)
+        ph_grid.setVerticalSpacing(12)
+        ph_grid.setContentsMargins(20, 5, 0, 0)
+        r = 0
+
+        ph_grid.addWidget(self.grid_section_title(
+            "Injection-centred analysis"), r, 0, 1, 4)
+        r += 1
+
+        ph_grid.addWidget(QLabel("Injection Time"), r, 0)
+        self.injection_time = QDateTimeEdit()
+        self.injection_time.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
+        self.injection_time.setDateTime(QDateTime.currentDateTime())
+        self.injection_time.setCalendarPopup(True)
+        ph_grid.addWidget(self.injection_time, r, 1, 1, 3)
+        r += 1
+
+        self.photo_pre_min = self.create_spin_box(10)
+        self.photo_post_min = self.create_spin_box(60)
+        self.photo_bin_min = self.create_spin_box(1)
+
+        ph_grid.addWidget(QLabel("Pre (min)"), r, 0)
+        ph_grid.addWidget(self.photo_pre_min, r, 1)
+        ph_grid.addWidget(QLabel("Post (min)"), r, 2)
+        ph_grid.addWidget(self.photo_post_min, r, 3)
+        r += 1
+
+        ph_grid.addWidget(QLabel("Bin (min)"), r, 0)
+        ph_grid.addWidget(self.photo_bin_min, r, 1)
+        r += 1
+
+        self.main_layout.addLayout(ph_grid)
+
+        # Timestamps (behaviour alignment mode)
+        self.add_section_title("Timestamp Alignment (Behaviour mode)")
         self.probe_time = self.create_datetime_input("Probe Start Time")
         self.video_time = self.create_datetime_input("Video Start Time")
 
@@ -45,51 +78,18 @@ class DataConfigGUI(QWidget):
         self.behavior_input = self.create_line_input(
             "Behavior to Plot", "Time spent sleeping")
 
-        # --- Two-column grid section ---
+        # Output
         form_grid = QGridLayout()
         form_grid.setHorizontalSpacing(20)
         form_grid.setVerticalSpacing(12)
         form_grid.setContentsMargins(20, 5, 0, 0)
         row = 0
-
-        # Buffer
-        form_grid.addWidget(self.grid_section_title(
-            "Buffer Around Behavior"), row, 0, 1, 4)
-        row += 1
-        self.buffer_before = self.create_spin_box(60)
-        self.buffer_after = self.create_spin_box(60)
-        form_grid.addWidget(QLabel("Buffer Before (s)"), row, 0)
-        form_grid.addWidget(self.buffer_before, row, 1)
-        form_grid.addWidget(QLabel("Buffer After (s)"), row, 2)
-        form_grid.addWidget(self.buffer_after, row, 3)
-        row += 1
-
-        # Duration
-        form_grid.addWidget(self.grid_section_title(
-            "Duration Filtering"), row, 0, 1, 4)
-        row += 1
-        self.restrict_duration = QCheckBox("Restrict by Duration")
-        self.restrict_duration.setChecked(True)
-        form_grid.addWidget(self.restrict_duration, row, 0, 1, 2)
-        row += 1
-        self.min_duration = self.create_spin_box(30)
-        self.max_duration = self.create_spin_box(10000)
-        form_grid.addWidget(QLabel("Min Duration (s)"), row, 0)
-        form_grid.addWidget(self.min_duration, row, 1)
-        form_grid.addWidget(QLabel("Max Duration (s)"), row, 2)
-        form_grid.addWidget(self.max_duration, row, 3)
-        self.restrict_duration.toggled.connect(self.toggle_duration_inputs)
-        self.toggle_duration_inputs(True)
-        row += 1
-
-        # Output
         form_grid.addWidget(self.grid_section_title(
             "Output Settings"), row, 0, 1, 4)
         row += 1
         self.bin_size = self.create_spin_box(10)
-        form_grid.addWidget(QLabel("Bin Size (s)"), row, 0)
+        form_grid.addWidget(QLabel("Bin Size (s) [Behaviour mode]"), row, 0)
         form_grid.addWidget(self.bin_size, row, 1)
-
         self.main_layout.addLayout(form_grid)
 
         # Run button
@@ -105,6 +105,10 @@ class DataConfigGUI(QWidget):
         self.log_box.setReadOnly(True)
         self.log_box.setStyleSheet("background-color: #1e1e1e; color: white;")
         self.main_layout.addWidget(self.log_box)
+
+        # Enable/disable photometry fields based on file presence
+        self.photometry_path.textChanged.connect(self.toggle_photometry_inputs)
+        self.toggle_photometry_inputs()
 
     def add_section_title(self, text):
         layout = QHBoxLayout()
@@ -123,9 +127,10 @@ class DataConfigGUI(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(20, 0, 0, 0)
         lbl = QLabel(label)
-        lbl.setFixedWidth(180)
+        lbl.setFixedWidth(220)
         entry = QLineEdit()
         entry.setReadOnly(True)
+        entry.setProperty("readOnly", True)
         btn = QPushButton("Browse")
         btn.setFixedWidth(80)
         entry.setSizePolicy(QSizePolicy.Policy.Expanding,
@@ -141,7 +146,7 @@ class DataConfigGUI(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(20, 0, 0, 0)
         lbl = QLabel(label)
-        lbl.setFixedWidth(180)
+        lbl.setFixedWidth(220)
         entry = QLineEdit()
         entry.setText(default)
         layout.addWidget(lbl)
@@ -153,7 +158,7 @@ class DataConfigGUI(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(20, 0, 0, 0)
         lbl = QLabel(label)
-        lbl.setFixedWidth(180)
+        lbl.setFixedWidth(220)
         dt = QDateTimeEdit()
         dt.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
         dt.setDateTime(QDateTime.currentDateTime())
@@ -165,23 +170,24 @@ class DataConfigGUI(QWidget):
 
     def create_spin_box(self, default):
         box = QSpinBox()
-        box.setMaximum(100000000)
+        box.setMaximum(10**9)
         box.setValue(default)
         box.setFixedWidth(100)
         return box
-
-    def toggle_duration_inputs(self, enabled):
-        self.min_duration.setEnabled(enabled)
-        self.max_duration.setEnabled(enabled)
 
     def select_file(self, target_entry):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select File",
-            filter="CSV and ASCII Files (*.csv *.ascii);;All Files (*)"
+            filter="CSV and ASCII Files (*.csv *.ascii *.txt);;All Files (*)"
         )
         if path:
             target_entry.setText(path)
+
+    def toggle_photometry_inputs(self):
+        enabled = bool(self.photometry_path.text().strip())
+        for w in (self.injection_time, self.photo_pre_min, self.photo_post_min, self.photo_bin_min):
+            w.setEnabled(enabled)
 
     def log(self, msg):
         self.log_box.appendPlainText(msg)
@@ -189,16 +195,47 @@ class DataConfigGUI(QWidget):
     def launch_analysis(self):
         try:
             telemetry_path = Path(self.data_path.text())
-            behavior_path = Path(self.behaviour_path.text())
+            if not telemetry_path.exists():
+                raise FileNotFoundError("Telemetry file does not exist.")
 
-            if not telemetry_path.exists() or not behavior_path.exists():
-                raise FileNotFoundError(
-                    "One or both selected files do not exist.")
+            photometry_mode = bool(self.photometry_path.text().strip())
+            if photometry_mode:
+                # --- Photometry mode ---
+                photometry_path = Path(self.photometry_path.text())
+                if not photometry_path.exists():
+                    raise FileNotFoundError(
+                        "Photometry file was selected but does not exist.")
+
+                self.log("Loading telemetry (for temp/activity/timebase)...")
+                # Let the photometry controller read the photometry file itself
+                # (we still pass telemetry-derived temp/activity if needed later)
+                telemetry_df, _ = load_data(telemetry_path, telemetry_path) if False else (
+                    None, None)  # not used here
+
+                injection_time_str = self.injection_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP")
+                pre_min = self.photo_pre_min.value()
+                post_min = self.photo_post_min.value()
+                bin_min = self.photo_bin_min.value()
+
+                self.log("Running photometry analysis...")
+                run_photometry_pipeline(
+                    telemetry_path=telemetry_path,        # for naming/output folders
+                    photometry_path=photometry_path,      # dF/F file
+                    injection_time=injection_time_str,
+                    pre_minutes=pre_min,
+                    post_minutes=post_min,
+                    bin_minutes=bin_min,
+                    log_callback=self.log
+                )
+                return
+
+            # --- Behaviour/pressure mode (original path) ---
+            behavior_path = Path(self.behaviour_path.text())
+            if not behavior_path.exists():
+                raise FileNotFoundError("Behavior file does not exist.")
 
             self.log("Loading files...")
-            telemetry_df, event_df = load_data(
-                telemetry_path, behavior_path)
-
+            telemetry_df, event_df = load_data(telemetry_path, behavior_path)
             if telemetry_df.empty or event_df.empty:
                 raise ValueError("One or both files are empty.")
 
@@ -206,26 +243,19 @@ class DataConfigGUI(QWidget):
             self.log(f"Telemetry rows: {len(telemetry_df)}")
             self.log(f"Event rows: {len(event_df)}")
 
-            # Extract values from GUI
             probe_time_str = self.probe_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP")
             video_time_str = self.video_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP")
             behaviour_to_plot = self.behavior_input.text()
-            buffer_before = self.buffer_before.value()
-            buffer_after = self.buffer_after.value()
-            min_duration = self.min_duration.value() if self.restrict_duration.isChecked() else 0
             bin_size = self.bin_size.value()
             output_path = telemetry_path  # used for naming and output folders
 
             self.log("Running analysis...")
-            run_analysis_pipeline(
+            run_pressure_pipeline(
                 telemetry_df=telemetry_df,
                 event_df=event_df,
                 behaviour_to_plot=behaviour_to_plot,
                 probe_time=probe_time_str,
                 video_time=video_time_str,
-                buffer_before=buffer_before,
-                buffer_after=buffer_after,
-                min_duration=min_duration,
                 bin_size_sec=bin_size,
                 output_path=output_path,
                 log_callback=self.log
@@ -235,3 +265,11 @@ class DataConfigGUI(QWidget):
             self.log(f"Error: {e}")
             self.log(traceback.format_exc())
             QMessageBox.critical(self, "Error", str(e))
+
+
+if __name__ == "__main__":
+    app = QApplication([])
+    w = DataConfigGUI()
+    w.resize(900, 700)
+    w.show()
+    app.exec()

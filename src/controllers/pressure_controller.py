@@ -45,15 +45,12 @@ def load_data(telemetry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd.
         raise RuntimeError(error_message)
 
 
-def run_analysis_pipeline(
+def run_pressure_pipeline(
     telemetry_df: pd.DataFrame,
     event_df: pd.DataFrame,
     behaviour_to_plot: str,
     probe_time: str,
     video_time: str,
-    buffer_before: int,
-    buffer_after: int,
-    min_duration: int,
     bin_size_sec: int,
     output_path: Path,
     log_callback=None
@@ -72,18 +69,22 @@ def run_analysis_pipeline(
     }
 
     log("Processing telemetry...")
-    pressure_data, temp_data, activity_data, numerical_data, new_reference_timestamp = extract_and_process_data(
+    processed_data = extract_and_process_data(
         telemetry_df,
         behaviour_data,
         probe_time,
         video_time,
     )
 
+    pressure_data = processed_data.get("Pressure")
+    temp_data = processed_data.get("Temp")
+    activity_data = processed_data.get("Activity")
+    new_reference_timestamp = processed_data["ReferenceTimestamp"]
+
     log("Selecting time windows...")
     time_windows = select_time_windows(
         behaviour_to_plot,
         behaviour_data,
-        min_duration,
         new_reference_timestamp
     )
 

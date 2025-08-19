@@ -9,6 +9,7 @@ REQUIRED_COLUMNS = {
     'duration': 'duration (s)'
 }
 
+MIN_DURATION = 30 # seconds
 
 def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
     """Read and standardize a behavior event CSV (case-insensitive)."""
@@ -39,12 +40,9 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
 def select_time_windows(
     behaviour_to_plot: str,
     behaviour_data: dict,
-    min_duration: float,
     reference_timestamp: pd.Timestamp
 ) -> list[tuple[float, float]]:
     """Filter and extract time windows for a specific behavior."""
-    if isinstance(min_duration, tuple):
-        min_duration = min_duration[0]
 
     cutoff_seconds = (reference_timestamp +
                       pd.Timedelta(minutes=90)).timestamp()
@@ -57,7 +55,7 @@ def select_time_windows(
     filtered = [
         (inst, start, end, dur) for inst, start, end, dur in behaviour_list
         if start <= cutoff_seconds and end <= cutoff_seconds
-        and isinstance(dur, (float, int)) and not math.isnan(dur) and dur >= min_duration
+        and isinstance(dur, (float, int)) and not math.isnan(dur) and dur >= MIN_DURATION
     ]
 
     return [(start, end) for _, start, end, _ in filtered]
