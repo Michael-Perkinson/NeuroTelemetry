@@ -110,30 +110,32 @@ def run_photometry_pipeline(
 
     log("Exporting full time-range plot...")
     export_full_time_range_plot(
-        signal_data,
-        None,  # no temp
-        None,  # no activity
-        [],    # no peaks yet
-        [],    # no pre-peaks yet
+        photometry_data,
+        temp_data,
+        activity_data,
+        valid_peak_times_all,
+        valid_pre_peak_times_all,
         min_time,
         max_time,
         behaviour_to_plot,
         full_trace_folder,
-        file_base
+        file_base,
+        main_signal_col="dFF",
+        main_signal_label="Photometry"
     )
-
-    log("Exporting per-behavior plots...")
-    export_behavior_images_interactive(
-        time_windows,
-        signal_data,
-        None,
-        None,
-        [], [],
-        behaviour_to_plot,
-        html_folder,
-        svg_folder,
-        file_base
-    )
+    
+    # log("Exporting per-behavior plots...")
+    # export_behavior_images_interactive(
+    #     time_windows,
+    #     signal_data,
+    #     None,
+    #     None,
+    #     [], [],
+    #     behaviour_to_plot,
+    #     html_folder,
+    #     svg_folder,
+    #     file_base
+    # )
 
     log("Saving Excel output...")
     export_data_to_excel(summary_data, {}, output_path)

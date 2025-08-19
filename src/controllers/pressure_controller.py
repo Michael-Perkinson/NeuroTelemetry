@@ -137,7 +137,9 @@ def run_pressure_pipeline(
         max_time,
         behaviour_to_plot,
         full_trace_folder,
-        file_base
+        file_base,
+        main_signal_col="SmoothedPressure",
+        main_signal_label="Pressure"
     )
 
     log("Exporting per-behavior plots...")
@@ -151,7 +153,9 @@ def run_pressure_pipeline(
         behaviour_to_plot,
         html_folder,
         svg_folder,
-        file_base
+        file_base,
+        main_signal_col="SmoothedPressure",
+        main_signal_label="Pressure"
     )
 
     log("Saving Excel output...")
