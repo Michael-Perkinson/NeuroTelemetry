@@ -44,14 +44,14 @@ def load_data(photometry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd
 
 
 def run_photometry_pipeline(
+    telemetry_df: pd.DataFrame,
     photometry_df: pd.DataFrame,
-    event_df: pd.DataFrame,
-    behaviour_to_plot: str,
-    probe_time: str,
-    video_time: str,
-    bin_size_sec: int,
+    injection_sec: int,
+    pre_minutes: int,
+    post_minutes: int,
+    bin_minutes: int,
     output_path: Path,
-    log_callback=None
+    log_callback=None,
 ):
     """End-to-end pipeline for analyzing fiber photometry data."""
     def log(msg: str):
@@ -61,11 +61,6 @@ def run_photometry_pipeline(
             print(msg)
 
     log("Preparing behavior data...")
-    behaviour_data = {
-        event: list(group[['instance', 'start', 'end', 'duration']].itertuples(
-            index=False, name=None))
-        for event, group in event_df.groupby('event')
-    }
 
     log("Processing photometry data...")
     processed_data = extract_and_process_data(

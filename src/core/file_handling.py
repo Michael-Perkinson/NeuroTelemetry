@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 from typing import Tuple
 from typing import Union, List
 from pathlib import Path
@@ -36,3 +37,22 @@ def create_folders_for_graphs(data_file_path: Path) -> Tuple[Path, Path, Path, s
     full_trace_folder.mkdir(parents=True, exist_ok=True)
 
     return html_save_folder, svg_save_folder, full_trace_folder, file_base
+
+
+def detect_file_type(path: Path) -> str:
+    """Return 'behaviour', 'photometry', or 'unknown' based on header inspection."""
+    try:
+        df = pd.read_csv(path, nrows=5)
+        cols = [c.strip().lower() for c in df.columns]
+
+        # Behaviour files: just need start + stop
+        if any("start" in c for c in cols) and any("stop" in c for c in cols):
+            return "behaviour"
+
+        # Photometry files: check for dFoF_465
+        if any("dfof_465" in c for c in cols):
+            return "photometry"
+
+        return "unknown"
+    except Exception:
+        return "unknown"

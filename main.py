@@ -6,6 +6,6 @@ import sys
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = DataConfigGUI()
-    window.resize(10, 10)
+    window.resize(900, 500)
     window.show()
     sys.exit(app.exec())

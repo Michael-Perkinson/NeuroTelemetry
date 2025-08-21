@@ -88,7 +88,7 @@ def build_export_data(all_metrics: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd
                 binned_df = binned_df.copy()
                 binned_df.insert(0, "Period", period_name)
                 binned_df.insert(0, "Window", window_key)
-                per_bin_rows.append(binned_df)  # ✅ This was missing
+                per_bin_rows.append(binned_df)
 
             # Summary data
             period_summary = period_data.get("Summary", {})
