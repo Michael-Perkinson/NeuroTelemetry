@@ -70,7 +70,8 @@ class DataConfigGUI(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(20, 15, 0, 5)
         label = QLabel(text)
-        label.setStyleSheet("font-weight: bold;")
+        label.setStyleSheet("font-weight: bold; font-size: 14pt;")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
         self.main_layout.addLayout(layout)
 
@@ -139,9 +140,10 @@ class DataConfigGUI(QWidget):
 
         # Centered title
         title = QLabel("Behaviour Mode")
-        title.setStyleSheet("font-weight: bold; font-size: 18pt;")
+        title.setStyleSheet("font-weight: bold; font-size: 14pt;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        grid.addWidget(title, 0, 0, 1, 2)  # row 0, col 0, span across 2 columns
+        # row 0, col 0, span across 2 columns
+        grid.addWidget(title, 0, 0, 1, 2)
 
         # Probe + video start
         probe_lbl = QLabel("Probe Start Time")
@@ -183,11 +185,11 @@ class DataConfigGUI(QWidget):
 
         # Centered title
         title = QLabel("Photometry Mode")
-        title.setStyleSheet("font-weight: bold; font-size: 18pt;")
+        title.setStyleSheet("font-weight: bold; font-size: 14pt;")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         grid.addWidget(title, 0, 0, 1, 4)  # span across all 4 columns
 
-        # Photometry start time
+        # Photometry start time (keep as datetime)
         start_lbl = QLabel("Photometry Start Time")
         self.photometry_start_time = QDateTimeEdit()
         self.photometry_start_time.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
@@ -196,21 +198,21 @@ class DataConfigGUI(QWidget):
         grid.addWidget(start_lbl, 1, 0)
         grid.addWidget(self.photometry_start_time, 1, 1, 1, 3)
 
-        # Injection + Pre/Post + Bin
+        # Injection + Pre/Post + Bin (line edits instead of spinboxes)
         grid.addWidget(QLabel("Injection Time (s from start)"), 2, 0)
-        self.injection_sec = self.create_spin_box(0)
+        self.injection_sec = QLineEdit("0")
         grid.addWidget(self.injection_sec, 2, 1)
 
         grid.addWidget(QLabel("Pre (min)"), 2, 2)
-        self.photo_pre_min = self.create_spin_box(10)
+        self.photo_pre_min = QLineEdit("10")
         grid.addWidget(self.photo_pre_min, 2, 3)
 
         grid.addWidget(QLabel("Post (min)"), 3, 0)
-        self.photo_post_min = self.create_spin_box(60)
+        self.photo_post_min = QLineEdit("60")
         grid.addWidget(self.photo_post_min, 3, 1)
 
         grid.addWidget(QLabel("Bin (min)"), 3, 2)
-        self.photo_bin_min = self.create_spin_box(1)
+        self.photo_bin_min = QLineEdit("1")
         grid.addWidget(self.photo_bin_min, 3, 3)
 
         return panel
