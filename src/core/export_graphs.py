@@ -12,7 +12,7 @@ from src.core.adaptive_algorithms import get_nearest_points
 
 # --- Main Full Trace Export ---
 def export_full_time_range_plot(
-    main_data: pd.DataFrame,             # pressure OR photometry
+    main_data: pd.DataFrame,            
     temp_data: pd.DataFrame,
     activity_data: pd.DataFrame,
     valid_peak_times_all: List[float],
@@ -75,19 +75,12 @@ def prepare_peaks_for_range(
     valid_pre_peak_times = filter_times_to_range(
         valid_pre_peak_times_all, min_time, max_time)
 
-    # Store original lengths
-    original_peak_len = len(valid_peak_times)
-    original_pre_peak_len = len(valid_pre_peak_times)
+    if not valid_peak_times or not valid_pre_peak_times:
+        # If one is empty, don’t trim — return as is
+        return valid_peak_times, valid_pre_peak_times
 
-    # Trim both to match
-    min_len = min(original_peak_len, original_pre_peak_len)
-    trimmed_peaks = original_peak_len - min_len
-    trimmed_pre_peaks = original_pre_peak_len - min_len
-
-    if trimmed_peaks > 0 or trimmed_pre_peaks > 0:
-        print(
-            f"Trimmed {trimmed_peaks} peaks and {trimmed_pre_peaks} pre-peaks to match lengths.")
-
+    # Otherwise, trim to same length
+    min_len = min(len(valid_peak_times), len(valid_pre_peak_times))
     return valid_peak_times[:min_len], valid_pre_peak_times[:min_len]
 
 
@@ -161,93 +154,104 @@ def create_interactive_plot(
     pre_peak_times: List[float],
     title: str,
     main_signal_col: str,
-    main_signal_label: str     
+    main_signal_label: str
 ) -> go.Figure:
     fig = go.Figure()
 
-    # Main signal (pressure/photometry)
+    ymin = main_df[main_signal_col].min()
+    ymax = main_df[main_signal_col].max()
+    yrange = ymax - ymin
+
+    # --- Photometry (main signal, left y-axis, green) ---
     fig.add_trace(go.Scatter(
-        x=main_df['TimeSinceReference'],
+        x=main_df['TimeSinceReference'] / 60,  # minutes
         y=main_df[main_signal_col],
         mode='lines',
-        name=main_signal_label,
-        line=dict(color='black', width=1)
+        name="Photometry",
+        line=dict(color='green', width=1),
+        yaxis="y"
     ))
 
-    # Temperature (right y-axis)
-    fig.add_trace(go.Scatter(
-        x=temp_df['TimeSinceReference'],
-        y=temp_df['Temp'],
-        mode='lines',
-        name='Temperature',
-        line=dict(color='red', width=1),
-        yaxis='y2'
-    ))
+    # --- Temperature (secondary y-axis, red line) ---
+    if not temp_df.empty:
+        fig.add_trace(go.Scatter(
+            x=temp_df['TimeSinceReference'] / 60,
+            y=temp_df['Temp'],
+            mode='lines',
+            name="Temperature",
+            line=dict(color='red', width=1),
+            yaxis='y2'
+        ))
 
-    # Activity (overlay on main axis)
-    fig.add_trace(go.Scatter(
-        x=activity_df['TimeSinceReference'],
-        y=activity_df['Activity'],
-        mode='lines',
-        name='Activity',
-        line=dict(color='green', width=1, dash='dot')
-    ))
+    # --- Activity (purple bars, scaled to 30% of photometry height) ---
+    if not activity_df.empty:
+        act_binned = activity_df.copy()
+        act_binned["Bin"] = (
+            act_binned["TimeSinceReference"] // 60).astype(int)
+        activity_bars = act_binned.groupby(
+            "Bin")["Activity"].mean().reset_index()
+        activity_bars["BinStart"] = activity_bars["Bin"]
 
-    # Peaks
+        scale = yrange * 0.3
+        fig.add_trace(go.Bar(
+            x=activity_bars["BinStart"],
+            y=(activity_bars["Activity"] /
+               activity_bars["Activity"].max()) * scale,
+            base=ymin,
+            name="Activity",
+            marker_color="purple",
+            opacity=0.5,
+            yaxis="y"
+        ))
+    # --- Peaks ---
     if len(peak_times) > 0:
         peak_series = main_df.set_index('TimeSinceReference')[main_signal_col]
-        peak_series_unique = peak_series[~peak_series.index.duplicated(
-            keep='first')]
-        peak_times_unique = pd.Index(peak_times).drop_duplicates()
-        peak_vals = peak_series_unique.reindex(peak_times_unique).dropna()
-
-        peak_times_filtered = [t for t, v in zip(
-            peak_times, peak_vals) if not pd.isna(v)]
+        peak_vals = peak_series.reindex(pd.Index(peak_times)).dropna()
         fig.add_trace(go.Scatter(
-            x=peak_times_filtered,
+            x=peak_vals.index / 60,
             y=peak_vals.values,
             mode='markers',
-            name=f"{main_signal_label} Peaks",
-            marker=dict(color='magenta', size=6, symbol='cross')
+            name="Peaks",
+            marker=dict(color='magenta', size=5, symbol='cross'),
+            yaxis="y"
         ))
 
-    # Pre-peaks
+    # --- Pre-peaks ---
     if len(pre_peak_times) > 0:
         pre_series = main_df.set_index('TimeSinceReference')[main_signal_col]
-        pre_vals = pre_series.reindex(pre_peak_times).dropna()
-
-        pre_times_filtered = [t for t, v in zip(
-            pre_peak_times, pre_vals) if not pd.isna(v)]
+        pre_vals = pre_series.reindex(pd.Index(pre_peak_times)).dropna()
         fig.add_trace(go.Scatter(
-            x=pre_times_filtered,
+            x=pre_vals.index / 60,
             y=pre_vals.values,
             mode='markers',
-            name=f"{main_signal_label} Pre-Peaks",
-            marker=dict(color='gold', size=6, symbol='triangle-up')
+            name="Pre-Peaks",
+            marker=dict(color='gold', size=5, symbol='triangle-up'),
+            yaxis="y"
         ))
 
-    # Layout (with secondary y-axis)
+    # --- Layout ---
     fig.update_layout(
         title=title,
-        xaxis_title='Time Since Reference (seconds)',
-        yaxis_title=main_signal_label,
+        xaxis_title='Time (minutes)',
+        yaxis=dict(
+            title="Photometry (dF/F)",
+            color='green',
+            range=[ymin, ymax]
+        ),
         yaxis2=dict(
-            title='Temperature',
+            title="Temperature",
             overlaying='y',
             side='right',
             color='red'
         ),
-        legend=dict(orientation="h", yanchor="bottom",
-                    y=1.02, xanchor="right", x=1),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                    xanchor="right", x=1),
         height=600,
-        hovermode='x unified',
-        xaxis=dict(range=[
-            main_df['TimeSinceReference'].min(),
-            main_df['TimeSinceReference'].max()
-        ])
+        hovermode='x unified'
     )
 
     return fig
+
 
 def create_static_plot(
     main_df: pd.DataFrame,
@@ -257,61 +261,72 @@ def create_static_plot(
     pre_peak_times: List[float],
     save_path: str,
     title: str,
-    main_signal_col: str,     # e.g. "SmoothedPressure" or "dFF"
-    main_signal_label: str    # e.g. "Pressure" or "Photometry"
+    main_signal_col: str,
+    main_signal_label: str
 ):
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
-    # --- Main signal ---
-    ax1.plot(
-        main_df['TimeSinceReference'],
-        main_df[main_signal_col],
-        color='black',
-        label=f"{main_signal_label}"
-    )
-    ax1.set_xlabel("Time Since Reference (seconds)")
-    ax1.set_ylabel(main_signal_label, color='black')
+    ymin = main_df[main_signal_col].min()
+    ymax = main_df[main_signal_col].max()
+    yrange = ymax - ymin
 
-    # --- Temperature ---
+    # --- Photometry (green line, left axis) ---
+    ax1.plot(
+        main_df['TimeSinceReference'] / 60,
+        main_df[main_signal_col],
+        color='green',
+        label="Photometry"
+    )
+    ax1.set_xlabel("Time (minutes)")
+    ax1.set_ylabel("Photometry (dF/F)", color='green')
+    ax1.set_ylim(ymin, ymax)  # lock limits so bars don't rescale
+
+    # --- Activity (purple bars scaled to 30% of photometry height) ---
+    if not activity_df.empty:
+        act_binned = activity_df.copy()
+        act_binned["Bin"] = (
+            act_binned["TimeSinceReference"] // 60).astype(int)
+        activity_bars = act_binned.groupby(
+            "Bin")["Activity"].mean().reset_index()
+        activity_bars["BinStart"] = activity_bars["Bin"]
+
+        scale = yrange * 0.3
+        ax1.bar(
+            activity_bars["BinStart"],
+            (activity_bars["Activity"] /
+             activity_bars["Activity"].max()) * scale,
+            bottom=ymin,
+            color="purple", alpha=0.5, width=1.0, label="Activity", zorder=0
+        )
+
+    # --- Temperature (red line, right axis) ---
     if not temp_df.empty:
         ax2 = ax1.twinx()
-        ax2.plot(temp_df['TimeSinceReference'], temp_df['Temp'],
+        ax2.plot(temp_df['TimeSinceReference'] / 60, temp_df['Temp'],
                  color='red', label="Temperature")
         ax2.set_ylabel("Temperature", color='red')
 
-    # --- Activity ---
-    if not activity_df.empty:
-        ax1.plot(activity_df['TimeSinceReference'], activity_df['Activity'],
-                 color='green', linestyle='dotted', label="Activity")
-
-    # --- Peaks ---
+    # --- Peaks (magenta) ---
     if len(peak_times) > 0:
         peak_series = main_df.set_index('TimeSinceReference')[main_signal_col]
-        peak_series_unique = peak_series[~peak_series.index.duplicated(
-            keep='first')]
-        peak_times_unique = pd.Index(peak_times).drop_duplicates()
-        peak_vals = peak_series_unique.reindex(peak_times_unique).dropna()
+        peak_vals = peak_series.reindex(pd.Index(peak_times)).dropna()
+        ax1.scatter(peak_vals.index / 60, peak_vals.values,
+                    color='magenta', marker='x', s=30, label="Peaks")
 
-        peak_times_filtered = [t for t, v in zip(
-            peak_times, peak_vals) if not pd.isna(v)]
-        ax1.scatter(peak_times_filtered, peak_vals.values,
-                    color='magenta', marker='x', label="Peaks")
-
-    # --- Pre-Peaks ---
+    # --- Pre-peaks (gold) ---
     if len(pre_peak_times) > 0:
         pre_series = main_df.set_index('TimeSinceReference')[main_signal_col]
-        pre_vals = pre_series.reindex(pre_peak_times).dropna()
-        pre_times_filtered = [t for t, v in zip(
-            pre_peak_times, pre_vals) if not pd.isna(v)]
-        ax1.scatter(pre_times_filtered, pre_vals.values,
-                    color='gold', marker='^', label="Pre-Peaks")
+        pre_vals = pre_series.reindex(pd.Index(pre_peak_times)).dropna()
+        ax1.scatter(pre_vals.index / 60, pre_vals.values,
+                    color='gold', marker='^', s=30, label="Pre-Peaks")
 
-    # --- Finalise plot ---
+    # --- Final touches ---
     ax1.set_title(title)
     ax1.legend(loc="upper left")
     ax1.grid(True)
     fig.savefig(save_path, format="svg", bbox_inches='tight')
     plt.close(fig)
+
 
 
 def filter_df_by_time(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame:

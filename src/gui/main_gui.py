@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QDateTime, Qt
 
 from src.controllers.pressure_controller import load_data, run_pressure_pipeline
-from src.controllers.photometry_controller import run_photometry_pipeline
+from src.controllers.photometry_controller import load_photometry_data, run_photometry_pipeline
 from src.core.file_handling import detect_file_type
 
 
@@ -200,20 +200,29 @@ class DataConfigGUI(QWidget):
 
         # Injection + Pre/Post + Bin (line edits instead of spinboxes)
         grid.addWidget(QLabel("Injection Time (s from start)"), 2, 0)
-        self.injection_sec = QLineEdit("0")
+        self.injection_sec = QSpinBox()
+        self.injection_sec.setRange(0, 99999)   # adjust max as needed
+        self.injection_sec.setValue(0)
         grid.addWidget(self.injection_sec, 2, 1)
 
         grid.addWidget(QLabel("Pre (min)"), 2, 2)
-        self.photo_pre_min = QLineEdit("10")
+        self.photo_pre_min = QSpinBox()
+        self.photo_pre_min.setRange(0, 1000)
+        self.photo_pre_min.setValue(30)
         grid.addWidget(self.photo_pre_min, 2, 3)
 
         grid.addWidget(QLabel("Post (min)"), 3, 0)
-        self.photo_post_min = QLineEdit("60")
+        self.photo_post_min = QSpinBox()
+        self.photo_post_min.setRange(0, 10000)
+        self.photo_post_min.setValue(360)
         grid.addWidget(self.photo_post_min, 3, 1)
 
         grid.addWidget(QLabel("Bin (min)"), 3, 2)
-        self.photo_bin_min = QLineEdit("1")
+        self.photo_bin_min = QSpinBox()
+        self.photo_bin_min.setRange(1, 1000)    # bins shouldn’t be 0
+        self.photo_bin_min.setValue(30)
         grid.addWidget(self.photo_bin_min, 3, 3)
+
 
         return panel
 
@@ -267,13 +276,16 @@ class DataConfigGUI(QWidget):
 
             if self.file_mode == "photometry":
                 self.log("Loading telemetry and photometry...")
-                telemetry_df = pd.read_csv(telemetry_path)
-                photometry_df = pd.read_csv(second_path)
+                 
+                photometry_df, telemetry_df = load_photometry_data(
+                    second_path, telemetry_path)
 
                 self.log("Running photometry analysis...")
                 run_photometry_pipeline(
                     telemetry_df=telemetry_df,
                     photometry_df=photometry_df,
+                    photometry_align_time=self.photometry_start_time.dateTime().toString(
+                        "dd/MM/yyyy hh:mm:ss AP"),
                     injection_sec=self.injection_sec.value(),
                     pre_minutes=self.photo_pre_min.value(),
                     post_minutes=self.photo_post_min.value(),

@@ -19,6 +19,13 @@ def _to_datetime_with_ms(series: pd.Series, dayfirst: bool, sample_rate_hz: floa
     """
     s = series.astype(str).str.strip()
 
+    # Normalize weird AM/PM notations like "a.m." / "p.m."
+    s = (
+        s.str.replace("a.m.", "AM", case=False, regex=False)
+         .str.replace("p.m.", "PM", case=False, regex=False)
+         .str.replace("..", ".", regex=False)   # collapse double dots
+    )
+
     first = s.iloc[0]
 
     # Case 1: ms before AM/PM
@@ -36,6 +43,7 @@ def _to_datetime_with_ms(series: pd.Series, dayfirst: bool, sample_rate_hz: floa
     first_dt = pd.to_datetime(first, format=fmt0, errors="raise")
     step_us = int(round(1_000_000 / sample_rate_hz))
     return pd.date_range(start=first_dt, periods=len(s), freq=f"{step_us}us").to_series(index=series.index)
+
 
 
 def _decide_dayfirst_from_probe(first_timestamp_str: str, probe_reference: datetime) -> bool:
@@ -209,10 +217,9 @@ def build_output_frames(
     sample_rates: Dict[str, float],
 ) -> Dict[str, pd.DataFrame]:
     """
-    Downsample temp and activity to their native rates.
+    Downsample Temp and Activity to their native rates.
     Pressure is passed through if present.
     """
-
     processed: Dict[str, pd.DataFrame] = {}
 
     # Pressure
@@ -220,34 +227,30 @@ def build_output_frames(
         pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
         pressure_rate = sample_rates["Pressure"]
 
-        # 🔑 preprocess here
         pressure_df = preprocess_pressure_data(pressure_df, pressure_rate)
-
         processed["Pressure"] = pressure_df
 
     # Temp
     if "Temp" in numerical_data:
         pressure_rate = sample_rates.get("Pressure") or sample_rates["Temp"]
         temp_rate = sample_rates["Temp"]
-        temp_interval = int(pressure_rate / temp_rate)
-        downsampled = numerical_data.iloc[::temp_interval, [
-            0, 2, 4]].reset_index(drop=True)
-        downsampled.columns = ["DateTime", "Temp", "TimeSinceReference"]
-        processed["Temp"] = downsampled[["TimeSinceReference", "Temp"]].copy()
+        temp_interval = max(1, int(pressure_rate / temp_rate))
+
+        downsampled = numerical_data.iloc[::temp_interval].copy()
+        processed["Temp"] = downsampled[["TimeSinceReference", "Temp"]]
 
     # Activity
     if "Activity" in numerical_data:
         pressure_rate = sample_rates.get(
             "Pressure") or sample_rates["Activity"]
         act_rate = sample_rates["Activity"]
-        act_interval = int(pressure_rate / act_rate)
-        downsampled = numerical_data.iloc[::act_interval, [
-            0, 3, 4]].reset_index(drop=True)
-        downsampled.columns = ["DateTime", "Activity", "TimeSinceReference"]
-        processed["Activity"] = downsampled[[
-            "TimeSinceReference", "Activity"]].copy()
+        act_interval = max(1, int(pressure_rate / act_rate))
+
+        downsampled = numerical_data.iloc[::act_interval].copy()
+        processed["Activity"] = downsampled[["TimeSinceReference", "Activity"]]
 
     return processed
+
 
 
 def parse_numerical_data(
@@ -327,6 +330,14 @@ def align_and_clean_datetime(
         raise ValueError(f"No valid {anchor_col} data found.")
 
     first_valid_time = numerical_data.at[first_valid_index, "DateTime"]
+    last_valid_time = numerical_data["DateTime"].iloc[-1]
+    
+    # --- sanity check for reference timestamp ---
+    if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
+        raise ValueError(
+            f"Reference timestamp {probe_reference_timestamp} not within "
+            f"data range ({first_valid_time} → {last_valid_time})."
+        )
 
     # new reference = first valid time
     new_reference_timestamp = first_valid_time
@@ -378,7 +389,6 @@ def preprocess_pressure_data(pressure_data: pd.DataFrame, pressure_sample_rate: 
     pressure_data.reset_index(drop=True, inplace=True)
 
     return pressure_data
-
 
 def adjust_behaviours(
     behaviour_data: Dict[str, List[Tuple[int, float, float, float]]],

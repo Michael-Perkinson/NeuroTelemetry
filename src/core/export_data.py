@@ -1,3 +1,5 @@
+from typing import Optional
+from typing import Dict, Optional
 from pathlib import Path
 from typing import Union
 import os
@@ -147,4 +149,23 @@ def export_data_to_excel(
         print(f"Export failed: {e}")
 
 
+def export_binned_data_to_excel(
+    output_folder: Path,
+    excel_filename: str,
+    peaks_binned: pd.DataFrame,
+    signal_binned: pd.DataFrame
+):
+    output_folder.mkdir(parents=True, exist_ok=True)
+    out_file = output_folder / excel_filename
 
+    # Write both sections with a blank row in between
+    with pd.ExcelWriter(out_file, engine="openpyxl") as writer:
+        peaks_binned.to_excel(
+            writer, sheet_name="Binned Data", index=False, startrow=0)
+
+        # Leave 2 blank rows
+        start_row = len(peaks_binned) + 3
+        signal_binned.to_excel(
+            writer, sheet_name="Binned Data", index=False, startrow=start_row)
+
+    print(f"Exported binned data to {out_file}")

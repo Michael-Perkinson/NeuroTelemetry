@@ -1,8 +1,9 @@
 from pathlib import Path
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
-from src.core.export_data import create_summary_data, export_data_to_excel
+from src.core.export_data import create_summary_data, export_data_to_excel, export_binned_data_to_excel
 from src.core.export_graphs import (
     export_full_time_range_plot,
     export_behavior_images_interactive
@@ -11,34 +12,36 @@ from src.core.file_handling import create_folders_for_graphs, list_files
 from src.core.adaptive_algorithms import get_time_bounds
 from src.core.period_analysis import find_valid_periods
 from src.core.event_file_parser import read_and_process_event_file, select_time_windows
-# or a photometry-specific reader
-from src.core.data_file_parser import retrieve_telemetry_data
+
+from src.core.data_file_parser import retrieve_telemetry_data, read_and_process_photometry_file
 from src.core.data_alignment import extract_and_process_data
 from src.core.logger import log_info, log_exception
+from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
+from src.core.photometry_metrics import bin_signal, combine_signal_bins
 
-
-def load_data(photometry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_photometry_data(photometry_path: Path, telemetry_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Load photometry and event files with logging + error context."""
     try:
         log_info(f"Loading photometry: {photometry_path}")
-        log_info(f"Loading event file: {event_path}")
-        photometry_df = retrieve_telemetry_data(photometry_path)
-        event_df = read_and_process_event_file(event_path)
+        log_info(f"Loading telemetry file: {telemetry_path}")
+        photometry_df = read_and_process_photometry_file(
+            photometry_path)
+        telemetry_df = retrieve_telemetry_data(telemetry_path)
         log_info("Data loaded successfully.")
-        return photometry_df, event_df
+        return photometry_df, telemetry_df
 
     except Exception as e:
         log_exception(e)
         photometry_dir_files = list_files(
             photometry_path.parent, ['csv', 'txt'])
-        event_dir_files = list_files(event_path.parent, ['csv', 'txt'])
+        telemetry_dir_files = list_files(telemetry_path.parent, ['csv', 'txt'])
 
         error_message = (
             f"Data loading failed.\n\n"
             f"Photometry file attempted:\n{photometry_path}\n\n"
             f"{photometry_dir_files}\n\n"
-            f"Event file attempted:\n{event_path}\n\n"
-            f"{event_dir_files}"
+            f"Telemetry file attempted:\n{telemetry_path}\n\n"
+            f"{telemetry_dir_files}"
         )
         raise RuntimeError(error_message)
 
@@ -46,6 +49,7 @@ def load_data(photometry_path: Path, event_path: Path) -> tuple[pd.DataFrame, pd
 def run_photometry_pipeline(
     telemetry_df: pd.DataFrame,
     photometry_df: pd.DataFrame,
+    photometry_align_time: str,
     injection_sec: int,
     pre_minutes: int,
     post_minutes: int,
@@ -60,78 +64,97 @@ def run_photometry_pipeline(
         else:
             print(msg)
 
-    log("Preparing behavior data...")
+    # ---- Setup analysis folder ----
+    file_base = Path(output_path).stem
+    analysis_folder = Path("extracted_data") / \
+        f"{file_base}_PhotometryAnalysis"
+    analysis_folder.mkdir(parents=True, exist_ok=True)
 
+    date_str = datetime.now().strftime('%Y%m%d')
+    excel_filename = f"{file_base}_photometry_{date_str}.xlsx"
+
+    # ---- Process telemetry ----
+    log("Processing telemetry...")
+    processed_telemetry = extract_and_process_data(
+        telemetry_df,
+        behaviour_data=None,
+        probe_date_time=photometry_align_time,
+        alignment_date_time=photometry_align_time
+    )
+    temp_data = processed_telemetry.get("Temp")
+    activity_data = processed_telemetry.get("Activity")
+
+    # ---- Process photometry ----
     log("Processing photometry data...")
-    processed_data = extract_and_process_data(
-        photometry_df,
-        behaviour_data,
-        probe_time,
-        video_time,
+    photo_min_time, photo_max_time = get_time_bounds(photometry_df)
+    start_time = injection_sec - pre_minutes * 60
+    end_time = injection_sec + post_minutes * 60
+    window_start = max(photo_min_time, start_time)
+    window_end = min(photo_max_time, end_time)
+
+    photometry_df = photometry_df[
+        (photometry_df["TimeSinceReference"] >= window_start) &
+        (photometry_df["TimeSinceReference"] <= window_end)
+    ].reset_index(drop=True)
+
+    if temp_data is not None:
+        temp_data = temp_data.query(
+            "@window_start <= TimeSinceReference <= @window_end")
+    if activity_data is not None:
+        activity_data = activity_data.query(
+            "@window_start <= TimeSinceReference <= @window_end")
+
+    per_peak_df, summary = analyse_photometry_peaks(
+        photometry_df, main_signal_col="dFoF_465"
     )
 
-    # Unpack — adapt depending on what extract_and_process_data returns
-    signal_data = processed_data["Photometry"]  # e.g. raw/cleaned signals
-    new_reference_timestamp = processed_data["ReferenceTimestamp"]
+    # ---- Summaries & binning ----
+    log("Summarizing data...")
+    bin_size_sec = bin_minutes * 60
+    peak_times = per_peak_df["PeakTime"].tolist(
+    ) if not per_peak_df.empty else []
 
-    log("Selecting time windows...")
-    time_windows = select_time_windows(
-        behaviour_to_plot,
-        behaviour_data,
-        new_reference_timestamp
+    photometry_binned = bin_signal(photometry_df, bin_size_sec, "dFoF_465")
+    temp_binned = bin_signal(
+        temp_data, bin_size_sec, "Temp") if temp_data is not None and not temp_data.empty else None
+    activity_binned = bin_signal(
+        activity_data, bin_size_sec, "Activity") if activity_data is not None and not activity_data.empty else None
+    peaks_binned = bin_peaks(per_peak_df, bin_size_sec)
+    
+    signal_binned = combine_signal_bins(
+        photometry_binned,
+        temp_binned,
+        activity_binned
     )
 
-    if not time_windows:
-        log("No valid time windows found.")
-        return
-
-    log(f"Found {len(time_windows)} time windows.")
-    log("Performing ΔF/F processing...")
-
-    # --- PLACEHOLDER: implement proper ΔF/F ---
-    baseline = signal_data["Signal"].rolling(
-        window=1000, min_periods=1).median()
-    signal_data["dFF"] = (signal_data["Signal"] - baseline) / baseline
-
-    log("Finding valid periods...")
-    min_time, max_time = get_time_bounds(signal_data)
-
-    # Placeholder summary until you add specific photometry metrics
-    summary_data = create_summary_data([], [], time_windows)
-
+    # ---- Plots ----
     log("Creating output folders...")
-    html_folder, svg_folder, full_trace_folder, file_base = create_folders_for_graphs(
-        output_path)
-
+    html_folder, svg_folder, full_trace_folder, _ = create_folders_for_graphs(
+        analysis_folder
+    )
     log("Exporting full time-range plot...")
     export_full_time_range_plot(
-        photometry_data,
+        photometry_df,
         temp_data,
         activity_data,
-        valid_peak_times_all,
-        valid_pre_peak_times_all,
-        min_time,
-        max_time,
-        behaviour_to_plot,
+        peak_times,
+        [],
+        window_start,
+        window_end,
+        "Injection Window",
         full_trace_folder,
         file_base,
-        main_signal_col="dFF",
+        main_signal_col="dFoF_465",
         main_signal_label="Photometry"
     )
-    
-    # log("Exporting per-behavior plots...")
-    # export_behavior_images_interactive(
-    #     time_windows,
-    #     signal_data,
-    #     None,
-    #     None,
-    #     [], [],
-    #     behaviour_to_plot,
-    #     html_folder,
-    #     svg_folder,
-    #     file_base
-    # )
 
+    # ---- Excel ----
     log("Saving Excel output...")
-    export_data_to_excel(summary_data, {}, output_path)
-    log("✅ Photometry analysis complete.")
+    export_binned_data_to_excel(
+        output_folder=analysis_folder,   
+        excel_filename=excel_filename, 
+        peaks_binned=peaks_binned,
+        signal_binned=signal_binned        
+    )
+
+    log("Photometry analysis complete.")
