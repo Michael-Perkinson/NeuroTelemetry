@@ -111,16 +111,22 @@ def run_photometry_pipeline(
     # ---- Summaries & binning ----
     log("Summarizing data...")
     bin_size_sec = bin_minutes * 60
+
+    # Build bins relative to injection (0 = injection point)
+    bin_start = -pre_minutes * 60
+    bin_end = post_minutes * 60
+    bin_edges = np.arange(bin_start, bin_end + bin_size_sec, bin_size_sec)
+
     peak_times = per_peak_df["PeakTime"].tolist(
     ) if not per_peak_df.empty else []
 
-    photometry_binned = bin_signal(photometry_df, bin_size_sec, "dFoF_465")
-    temp_binned = bin_signal(
-        temp_data, bin_size_sec, "Temp") if temp_data is not None and not temp_data.empty else None
+    photometry_binned = bin_signal(
+        photometry_df, bin_edges, "dFoF_465", injection_sec)
+    temp_binned = bin_signal(temp_data, bin_edges, "Temp", injection_sec)
     activity_binned = bin_signal(
-        activity_data, bin_size_sec, "Activity") if activity_data is not None and not activity_data.empty else None
-    peaks_binned = bin_peaks(per_peak_df, bin_size_sec)
-    
+        activity_data, bin_edges, "Activity", injection_sec)
+    peaks_binned = bin_peaks(per_peak_df, bin_edges, injection_sec)
+
     signal_binned = combine_signal_bins(
         photometry_binned,
         temp_binned,
