@@ -13,9 +13,7 @@ def analyse_photometry_peaks(
     """
     Detect peaks in photometry signal, extract per-peak metrics (no troughs).
     Returns:
-        per_peak_df: PeakTime, Amplitude, PeakInterval (ISI),
-                     PeaksPerMinute (instantaneous freq),
-                     PeakCount (cumulative), Width
+        per_peak_df: PeakTime, Amplitude, PeakInterval (ISI), PeakCount, Width
         summary: dict of summary statistics
     """
     if "TimeSinceReference" not in photometry_data.columns:
@@ -44,43 +42,37 @@ def analyse_photometry_peaks(
     amplitudes = peak_vals[keep_mask]
     widths = widths[keep_mask]
 
-    # ISI
+    # ISI (sec between peaks)
     isi = np.diff(peak_times)
     isi = np.append(isi, np.nan)
 
-    # Peaks per minute (instantaneous frequency)
-    elapsed_minutes = (peak_times - peak_times[0]) / 60.0
-    peaks_per_minute = np.full_like(elapsed_minutes, np.nan, dtype=float)
-    valid = elapsed_minutes > 0
-    peaks_per_minute[valid] = np.arange(
-        1, len(peak_times)+1)[valid] / elapsed_minutes[valid]
-
     # Cumulative peak count
-    peak_count = np.arange(1, len(peak_times)+1)
+    peak_count = np.arange(1, len(peak_times) + 1)
 
     # --- Build dataframe ---
     per_peak_df = pd.DataFrame({
         "PeakTime": peak_times,
         "Amplitude": amplitudes,
         "PeakInterval": isi,
-        "PeaksPerMinute": peaks_per_minute,
         "PeakCount": peak_count,
         "Width": widths,
     })
 
-    # --- Summary ---
+    # --- Summary (includes global peaks per min) ---
+    window_minutes = (photometry_data["TimeSinceReference"].max() -
+                      photometry_data["TimeSinceReference"].min()) / 60.0
+    overall_peaks_per_min = len(
+        peak_times) / window_minutes if window_minutes > 0 else np.nan
+
     summary = {
         "n_peaks": len(per_peak_df),
         "mean_amp": float(np.mean(amplitudes)) if len(amplitudes) else np.nan,
         "mean_width": float(np.mean(widths)) if len(widths) else np.nan,
         "mean_peak_interval": float(np.nanmean(isi)) if len(isi) else np.nan,
-        "overall_peaks_per_min": float(
-            len(peak_times) / ((peak_times[-1] - peak_times[0]) / 60.0)
-        ) if len(peak_times) > 1 else np.nan,
+        "overall_peaks_per_min": overall_peaks_per_min,
     }
 
     return per_peak_df, summary
-
 
 
 def bin_peaks(
@@ -90,17 +82,18 @@ def bin_peaks(
 ) -> pd.DataFrame:
     """
     Bin detected peaks into fixed time windows relative to injection time.
+    Reports count, mean amp/width/ISI, and peaks per minute.
     """
     if per_peak_df.empty:
         return pd.DataFrame(columns=[
             "BinStart", "BinEnd",
-            "PeakCount",
+            "PeakCount", "PeaksPerMinute",
             "MeanAmp", "SEMAmp",
             "MeanWidth", "SEMWidth",
             "MeanISI", "SEMISI"
         ])
 
-    # Convert absolute → relative time
+    # Convert absolute → relative
     t_rel = per_peak_df["PeakTime"].to_numpy() - injection_sec
     bin_indices = np.digitize(t_rel, bin_edges) - 1
 
@@ -123,14 +116,19 @@ def bin_peaks(
         mean_width, sem_width = mean_sem(
             sub["Width"]) if "Width" in sub else (np.nan, np.nan)
 
-        # ISIs: drop last so it doesn’t bleed into next bin
+        # ISIs within this bin
         isi_in_bin = sub["PeakInterval"].iloc[:-1] if len(sub) > 1 else []
         mean_isi, sem_isi = mean_sem(isi_in_bin) if len(
             isi_in_bin) else (np.nan, np.nan)
 
+        # Peak count + normalized frequency
+        peak_count = len(sub)
+        bin_minutes = (bin_edges[i+1] - bin_edges[i]) / 60.0
+        peaks_per_min = peak_count / bin_minutes if bin_minutes > 0 else np.nan
+
         rows.append([
             bin_edges[i], bin_edges[i+1],
-            len(sub),
+            peak_count, peaks_per_min,
             mean_amp, sem_amp,
             mean_width, sem_width,
             mean_isi, sem_isi
@@ -138,7 +136,7 @@ def bin_peaks(
 
     return pd.DataFrame(rows, columns=[
         "BinStart", "BinEnd",
-        "PeakCount",
+        "PeakCount", "PeaksPerMinute",
         "MeanAmp", "SEMAmp",
         "MeanWidth", "SEMWidth",
         "MeanISI", "SEMISI"
