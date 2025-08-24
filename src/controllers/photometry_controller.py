@@ -14,7 +14,7 @@ from src.core.period_analysis import find_valid_periods
 from src.core.event_file_parser import read_and_process_event_file, select_time_windows
 
 from src.core.data_file_parser import retrieve_telemetry_data, read_and_process_photometry_file
-from src.core.data_alignment import extract_and_process_data
+from src.core.data_alignment import extract_and_process_data, prepare_raw_data
 from src.core.logger import log_info, log_exception
 from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
 from src.core.photometry_metrics import bin_signal, combine_signal_bins
@@ -107,6 +107,13 @@ def run_photometry_pipeline(
     per_peak_df, summary = analyse_photometry_peaks(
         photometry_df, main_signal_col="dFoF_465"
     )
+    
+    df_raw = prepare_raw_data(
+        photometry_df,
+        temp_data,
+        activity_data,
+        injection_sec
+    )
 
     # ---- Summaries & binning ----
     log("Summarizing data...")
@@ -157,10 +164,11 @@ def run_photometry_pipeline(
     # ---- Excel ----
     log("Saving Excel output...")
     export_binned_data_to_excel(
-        output_folder=analysis_folder,   
-        excel_filename=excel_filename, 
+        output_folder=analysis_folder,
+        excel_filename=excel_filename,
         peaks_binned=peaks_binned,
-        signal_binned=signal_binned        
+        signal_binned=signal_binned,
+        df_raw=df_raw
     )
 
     log("Photometry analysis complete.")

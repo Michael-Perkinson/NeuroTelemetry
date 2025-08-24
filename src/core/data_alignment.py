@@ -45,7 +45,6 @@ def _to_datetime_with_ms(series: pd.Series, dayfirst: bool, sample_rate_hz: floa
     return pd.date_range(start=first_dt, periods=len(s), freq=f"{step_us}us").to_series(index=series.index)
 
 
-
 def _decide_dayfirst_from_probe(first_timestamp_str: str, probe_reference: datetime) -> bool:
     """
     Decide if a date string is day-first (dd/mm/yyyy) or month-first (mm/dd/yyyy),
@@ -203,6 +202,7 @@ def compute_time_offsets(video_ref, probe_ref, removed_nan):
     total = video_diff + removed_nan
     return video_diff, total
 
+
 def parse_reference_timestamps(
     probe_date_time: str,
     alignment_date_time: str
@@ -250,7 +250,6 @@ def build_output_frames(
         processed["Activity"] = downsampled[["TimeSinceReference", "Activity"]]
 
     return processed
-
 
 
 def parse_numerical_data(
@@ -331,7 +330,7 @@ def align_and_clean_datetime(
 
     first_valid_time = numerical_data.at[first_valid_index, "DateTime"]
     last_valid_time = numerical_data["DateTime"].iloc[-1]
-    
+
     # --- sanity check for reference timestamp ---
     if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
         raise ValueError(
@@ -390,6 +389,7 @@ def preprocess_pressure_data(pressure_data: pd.DataFrame, pressure_sample_rate: 
 
     return pressure_data
 
+
 def adjust_behaviours(
     behaviour_data: Dict[str, List[Tuple[int, float, float, float]]],
     total_time_diff: float
@@ -409,3 +409,34 @@ def adjust_behaviours(
                     f'''Skipping behavior instance {instance_number} due to negative start or end time.''')
         behaviour_data[behaviour] = adjusted_instances
     return behaviour_data
+
+
+def prepare_raw_data(
+    photometry_df: pd.DataFrame,
+    temp_data: Optional[pd.DataFrame],
+    activity_data: Optional[pd.DataFrame],
+    injection_sec: float
+) -> pd.DataFrame:
+    """
+    Continuous raw data aligned to injection time.
+    Columns: TimeRel, dFoF_465, Temp, Activity
+    """
+    df_raw = pd.DataFrame()
+    df_raw["TimeRel"] = photometry_df["TimeSinceReference"] - injection_sec
+    df_raw["dFoF_465"] = photometry_df["dFoF_465"]
+
+    if temp_data is not None and not temp_data.empty:
+        df_raw["Temp"] = np.interp(
+            df_raw["TimeRel"],
+            temp_data["TimeSinceReference"] - injection_sec,
+            temp_data["Temp"]
+        )
+
+    if activity_data is not None and not activity_data.empty:
+        df_raw["Activity"] = np.interp(
+            df_raw["TimeRel"],
+            activity_data["TimeSinceReference"] - injection_sec,
+            activity_data["Activity"]
+        )
+
+    return df_raw
