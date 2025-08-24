@@ -36,3 +36,5 @@ C:\Users\permi73p\Documents\Code\pressure_analysis\data\Day 2 (25-04-24) Pro - t
 
 25/04/2024 10:05:18 AM
 25/04/2024 10:07:06 AM  
+
+Raw data for graphing. And frequency of peaks per minute

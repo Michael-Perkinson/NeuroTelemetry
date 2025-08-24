@@ -9,56 +9,54 @@ def analyse_photometry_peaks(
     main_signal_col: str = "dFoF_465",
     prominence: float = 0.05,
     amp_thresh: float = 0.01,
-    waveform_window: float = 5.0,   # seconds before/after peak for waveform averaging
 ) -> Tuple[pd.DataFrame, Dict[str, float]]:
     """
     Detect peaks in photometry signal, extract per-peak metrics (no troughs).
     Returns:
-        per_peak_df: PeakTime, Amplitude, PeakInterval, PeaksPerMinute, Width, PeakCount
+        per_peak_df: PeakTime, Amplitude, PeakInterval (ISI),
+                     PeaksPerMinute (instantaneous freq),
+                     PeakCount (cumulative), Width
         summary: dict of summary statistics
     """
-
     if "TimeSinceReference" not in photometry_data.columns:
-        raise ValueError(
-            "photometry_data must contain a 'TimeSinceReference' column.")
+        raise ValueError("photometry_data must contain 'TimeSinceReference'")
     if main_signal_col.strip() not in photometry_data.columns.str.strip():
-        raise ValueError(
-            f"photometry_data missing required column: {main_signal_col}")
+        raise ValueError(f"Missing required column: {main_signal_col}")
 
     t = photometry_data["TimeSinceReference"].to_numpy()
     y = photometry_data[main_signal_col.strip()].to_numpy()
 
     # --- Peak detection ---
-    peaks, p_props = find_peaks(y, prominence=prominence)
-
+    peaks, _ = find_peaks(y, prominence=prominence)
     if len(peaks) == 0:
         return pd.DataFrame(), {"n_peaks": 0}
 
-    # Extract peak metrics
     peak_times = t[peaks]
     peak_vals = y[peaks]
 
-    # Widths (FWHM from scipy)
+    # Widths
     widths_res = peak_widths(y, peaks, rel_height=0.5)
-    widths = widths_res[0] * np.median(np.diff(t))  # convert to seconds
+    widths = widths_res[0] * np.median(np.diff(t))
 
-    # Apply amplitude threshold filter
+    # Amplitude threshold
     keep_mask = peak_vals > amp_thresh
     peak_times = peak_times[keep_mask]
     amplitudes = peak_vals[keep_mask]
     widths = widths[keep_mask]
 
-    # Peak-to-peak intervals (ISI, in seconds)
+    # ISI
     isi = np.diff(peak_times)
-    isi = np.append(isi, np.nan)  # last peak gets NaN
+    isi = np.append(isi, np.nan)
 
-    # Peaks per minute (cumulative rate at each peak time)
+    # Peaks per minute (instantaneous frequency)
     elapsed_minutes = (peak_times - peak_times[0]) / 60.0
-    peaks_per_minute = np.arange(1, len(peak_times) + 1) / elapsed_minutes
-    peaks_per_minute[0] = np.nan  # undefined for the very first peak
+    peaks_per_minute = np.full_like(elapsed_minutes, np.nan, dtype=float)
+    valid = elapsed_minutes > 0
+    peaks_per_minute[valid] = np.arange(
+        1, len(peak_times)+1)[valid] / elapsed_minutes[valid]
 
     # Cumulative peak count
-    peak_count = np.arange(1, len(peak_times) + 1)
+    peak_count = np.arange(1, len(peak_times)+1)
 
     # --- Build dataframe ---
     per_peak_df = pd.DataFrame({
@@ -66,20 +64,23 @@ def analyse_photometry_peaks(
         "Amplitude": amplitudes,
         "PeakInterval": isi,
         "PeaksPerMinute": peaks_per_minute,
+        "PeakCount": peak_count,
         "Width": widths,
-        "PeakCount": peak_count
     })
 
-    # --- Summary stats ---
+    # --- Summary ---
     summary = {
         "n_peaks": len(per_peak_df),
         "mean_amp": float(np.mean(amplitudes)) if len(amplitudes) else np.nan,
         "mean_width": float(np.mean(widths)) if len(widths) else np.nan,
         "mean_peak_interval": float(np.nanmean(isi)) if len(isi) else np.nan,
-        "overall_peaks_per_min": float(len(peak_times) / ((peak_times[-1] - peak_times[0]) / 60.0)) if len(peak_times) > 1 else np.nan,
+        "overall_peaks_per_min": float(
+            len(peak_times) / ((peak_times[-1] - peak_times[0]) / 60.0)
+        ) if len(peak_times) > 1 else np.nan,
     }
 
     return per_peak_df, summary
+
 
 
 def bin_peaks(
