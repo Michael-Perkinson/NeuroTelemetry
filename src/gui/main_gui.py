@@ -1,19 +1,32 @@
 # gui_app.py
 
 import traceback
-import pandas as pd
 from pathlib import Path
 
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QPushButton, QFileDialog, QDateTimeEdit,
-    QSpinBox, QPlainTextEdit, QMessageBox, QGridLayout, QSizePolicy,
-    QStackedWidget
-)
 from PySide6.QtCore import QDateTime, Qt
+from PySide6.QtWidgets import (
+    QApplication,
+    QDateTimeEdit,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
+    QSpinBox,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from src.controllers.photometry_controller import (
+    load_photometry_data,
+    run_photometry_pipeline,
+)
 from src.controllers.pressure_controller import load_data, run_pressure_pipeline
-from src.controllers.photometry_controller import load_photometry_data, run_photometry_pipeline
 from src.core.file_handling import detect_file_type
 
 
@@ -32,15 +45,13 @@ class DataConfigGUI(QWidget):
         # Input files
         self.add_global_section_title("Input Files")
         self.telemetry_path = self.create_file_selector("Telemetry Data File")
-        self.secondary_path = self.create_file_selector(
-            "Behaviour or Photometry File"
-        )
+        self.secondary_path = self.create_file_selector("Behaviour or Photometry File")
 
         # --- Option panels stacked ---
         self.stack = QStackedWidget()
         self.behaviour_panel = self.build_behaviour_panel()
         self.photometry_panel = self.build_photometry_panel()
-        self.stack.addWidget(self.behaviour_panel)   # index 0
+        self.stack.addWidget(self.behaviour_panel)  # index 0
         self.stack.addWidget(self.photometry_panel)  # index 1
         self.main_layout.addWidget(self.stack)
 
@@ -91,8 +102,7 @@ class DataConfigGUI(QWidget):
         entry.setProperty("readOnly", True)
         btn = QPushButton("Browse")
         btn.setFixedWidth(80)
-        entry.setSizePolicy(QSizePolicy.Policy.Expanding,
-                            QSizePolicy.Policy.Fixed)
+        entry.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         btn.clicked.connect(lambda: self.select_file(entry))
         layout.addWidget(lbl)
         layout.addWidget(entry)
@@ -201,7 +211,7 @@ class DataConfigGUI(QWidget):
         # Injection + Pre/Post + Bin (line edits instead of spinboxes)
         grid.addWidget(QLabel("Injection Time (s from start)"), 2, 0)
         self.injection_sec = QSpinBox()
-        self.injection_sec.setRange(0, 99999)   # adjust max as needed
+        self.injection_sec.setRange(0, 99999)  # adjust max as needed
         self.injection_sec.setValue(0)
         grid.addWidget(self.injection_sec, 2, 1)
 
@@ -219,10 +229,9 @@ class DataConfigGUI(QWidget):
 
         grid.addWidget(QLabel("Bin (min)"), 3, 2)
         self.photo_bin_min = QSpinBox()
-        self.photo_bin_min.setRange(1, 1000)    # bins shouldn’t be 0
+        self.photo_bin_min.setRange(1, 1000)  # bins shouldn’t be 0
         self.photo_bin_min.setValue(30)
         grid.addWidget(self.photo_bin_min, 3, 3)
-
 
         return panel
 
@@ -232,7 +241,7 @@ class DataConfigGUI(QWidget):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select File",
-            filter="CSV and ASCII Files (*.csv *.ascii *.txt);;All Files (*)"
+            filter="CSV and ASCII Files (*.csv *.ascii *.txt);;All Files (*)",
         )
         if path:
             target_entry.setText(path)
@@ -276,16 +285,18 @@ class DataConfigGUI(QWidget):
 
             if self.file_mode == "photometry":
                 self.log("Loading telemetry and photometry...")
-                 
+
                 photometry_df, telemetry_df = load_photometry_data(
-                    second_path, telemetry_path)
+                    second_path, telemetry_path
+                )
 
                 self.log("Running photometry analysis...")
                 run_photometry_pipeline(
                     telemetry_df=telemetry_df,
                     photometry_df=photometry_df,
                     photometry_align_time=self.photometry_start_time.dateTime().toString(
-                        "dd/MM/yyyy hh:mm:ss AP"),
+                        "dd/MM/yyyy hh:mm:ss AP"
+                    ),
                     injection_sec=self.injection_sec.value(),
                     pre_minutes=self.photo_pre_min.value(),
                     post_minutes=self.photo_post_min.value(),
@@ -296,24 +307,26 @@ class DataConfigGUI(QWidget):
 
             elif self.file_mode == "behaviour":
                 self.log("Loading telemetry and behaviour data...")
-                telemetry_df, behaviour_df = load_data(
-                    telemetry_path, second_path)
+                telemetry_df, behaviour_df = load_data(telemetry_path, second_path)
 
                 self.log("Running behaviour analysis...")
                 run_pressure_pipeline(
                     telemetry_df=telemetry_df,
                     event_df=behaviour_df,
                     behaviour_to_plot=self.behaviour_input.text(),
-                    probe_time=self.probe_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP"),
-                    video_time=self.video_time.dateTime().toString("dd/MM/yyyy hh:mm:ss AP"),
+                    probe_time=self.probe_time.dateTime().toString(
+                        "dd/MM/yyyy hh:mm:ss AP"
+                    ),
+                    video_time=self.video_time.dateTime().toString(
+                        "dd/MM/yyyy hh:mm:ss AP"
+                    ),
                     bin_size_sec=self.bin_size.value(),
                     output_path=telemetry_path,
-                    log_callback=self.log
+                    log_callback=self.log,
                 )
 
             else:
-                raise ValueError(
-                    "Unknown file type. Please select a valid Behaviour or Photometry file.")
+                raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
 
         except Exception as e:
             self.log(f"Error: {e}")

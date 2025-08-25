@@ -1,7 +1,9 @@
 # main.py
-from src.gui.main_gui import DataConfigGUI
-from PySide6.QtWidgets import QApplication
 import sys
+
+from PySide6.QtWidgets import QApplication
+
+from src.gui.main_gui import DataConfigGUI
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

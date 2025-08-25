@@ -1,19 +1,15 @@
-from typing import Optional
-from typing import Dict, Optional
-from pathlib import Path
-from typing import Union
-import os
-import pandas as pd
-import numpy as np
 from datetime import datetime
-from typing import List, Tuple, Dict, Any
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
 
 
 def create_summary_data(
-    valid_peak_times_all: List[float],
-    updated_valid_periods: List[Tuple[float, float]],
-    time_windows: List[Tuple[float, float]]
-) -> List[Dict[str, Any]]:
+    valid_peak_times_all: list[float],
+    updated_valid_periods: list[tuple[float, float]],
+    time_windows: list[tuple[float, float]],
+) -> list[dict[str, Any]]:
     """
     Create a summary of valid respiratory periods and total peaks per time window.
 
@@ -23,32 +19,39 @@ def create_summary_data(
 
     for window_start_time, window_end_time in time_windows:
         # Time window block
-        summary_data.append({
-            'Description': 'Overall Time Window',
-            'Start Time': window_start_time,
-            'End Time': window_end_time,
-            'Number of Peaks': None,
-            'Duration (s)': window_end_time - window_start_time,
-            'Peaks per Minute': None,
-        })
+        summary_data.append(
+            {
+                "Description": "Overall Time Window",
+                "Start Time": window_start_time,
+                "End Time": window_end_time,
+                "Number of Peaks": None,
+                "Duration (s)": window_end_time - window_start_time,
+                "Peaks per Minute": None,
+            }
+        )
 
         # Valid periods within this window
         for valid_start, valid_end in updated_valid_periods:
-            if window_start_time <= valid_start <= window_end_time and window_start_time <= valid_end <= window_end_time:
+            if (
+                window_start_time <= valid_start <= window_end_time
+                and window_start_time <= valid_end <= window_end_time
+            ):
                 num_valid_peaks = sum(
-                    valid_start <= peak <= valid_end for peak in valid_peak_times_all)
+                    valid_start <= peak <= valid_end for peak in valid_peak_times_all
+                )
                 duration = valid_end - valid_start
-                ppm = (num_valid_peaks / duration) * \
-                    60 if duration > 0 else None
+                ppm = (num_valid_peaks / duration) * 60 if duration > 0 else None
 
-                summary_data.append({
-                    'Description': 'Valid Period',
-                    'Start Time': valid_start,
-                    'End Time': valid_end,
-                    'Number of Peaks': num_valid_peaks,
-                    'Duration (s)': duration,
-                    'Peaks per Minute': ppm,
-                })
+                summary_data.append(
+                    {
+                        "Description": "Valid Period",
+                        "Start Time": valid_start,
+                        "End Time": valid_end,
+                        "Number of Peaks": num_valid_peaks,
+                        "Duration (s)": duration,
+                        "Peaks per Minute": ppm,
+                    }
+                )
 
     return summary_data
 
@@ -63,14 +66,15 @@ def insert_blank_rows(dataframes: list[pd.DataFrame], group_key: str) -> pd.Data
         current_group = df[group_key].iloc[0]
         if last_group is not None and current_group != last_group:
             # Append one blank row
-            rows.append(pd.DataFrame(
-                [[""] * len(df.columns)], columns=df.columns))
+            rows.append(pd.DataFrame([[""] * len(df.columns)], columns=df.columns))
         rows.append(df)
         last_group = current_group
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 
-def build_export_data(all_metrics: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def build_export_data(
+    all_metrics: dict,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Prepare per-bin, per-period, and per-window dataframes with spacing."""
     per_bin_rows, per_period_rows, per_window_rows = [], [], []
 
@@ -95,11 +99,9 @@ def build_export_data(all_metrics: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd
             # Summary data
             period_summary = period_data.get("Summary", {})
             if period_summary:
-                summary_df = pd.DataFrame([{
-                    "Window": window_key,
-                    "Period": period_name,
-                    **period_summary
-                }])
+                summary_df = pd.DataFrame(
+                    [{"Window": window_key, "Period": period_name, **period_summary}]
+                )
                 per_period_rows.append(summary_df)
 
     # Add spacing
@@ -111,38 +113,34 @@ def build_export_data(all_metrics: dict) -> tuple[pd.DataFrame, pd.DataFrame, pd
 
 
 def export_data_to_excel(
-    summary_data: list[dict],
-    all_metrics: dict,
-    data_file_path: str
+    summary_data: list[dict], all_metrics: dict, data_file_path: str
 ) -> None:
     """Export data to Excel with 5 structured sheets."""
     try:
         summary_df = pd.DataFrame(summary_data)
         global_summary = all_metrics.get("GlobalSummary", {})
-        global_summary_df = pd.DataFrame(
-            [global_summary]) if global_summary else pd.DataFrame()
+        global_summary_df = (
+            pd.DataFrame([global_summary]) if global_summary else pd.DataFrame()
+        )
 
-        per_bin_df, per_period_df, per_window_df = build_export_data(
-            all_metrics)
+        per_bin_df, per_period_df, per_window_df = build_export_data(all_metrics)
 
         # Create file path using pathlib
         file_base = Path(data_file_path).stem
         analysis_folder = Path("extracted_data") / f"{file_base}_MRP_analysis"
         analysis_folder.mkdir(parents=True, exist_ok=True)
-        date_str = datetime.now().strftime('%Y%m%d')
-        excel_path = analysis_folder / \
-            f"{file_base}_MRP_analysis_{date_str}_sleep_analysis.xlsx"
+        date_str = datetime.now().strftime("%Y%m%d")
+        excel_path = (
+            analysis_folder / f"{file_base}_MRP_analysis_{date_str}_sleep_analysis.xlsx"
+        )
 
-        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-            summary_df.to_excel(writer, sheet_name='Summary Data', index=False)
-            global_summary_df.to_excel(
-                writer, sheet_name='Global Summary', index=False)
-            per_bin_df.to_excel(writer, sheet_name='Per Bin', index=False)
-            per_period_df.to_excel(
-                writer, sheet_name='Per Period', index=False)
-            per_window_df.to_excel(
-                writer, sheet_name='Per Window', index=False)
-            
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            summary_df.to_excel(writer, sheet_name="Summary Data", index=False)
+            global_summary_df.to_excel(writer, sheet_name="Global Summary", index=False)
+            per_bin_df.to_excel(writer, sheet_name="Per Bin", index=False)
+            per_period_df.to_excel(writer, sheet_name="Per Period", index=False)
+            per_window_df.to_excel(writer, sheet_name="Per Window", index=False)
+
         print(f"Exported to {excel_path}")
 
     except Exception as e:
@@ -154,18 +152,18 @@ def export_binned_data_to_excel(
     excel_filename: str,
     peaks_binned: pd.DataFrame,
     signal_binned: pd.DataFrame,
-    df_raw: pd.DataFrame
+    df_raw: pd.DataFrame,
 ):
     output_folder.mkdir(parents=True, exist_ok=True)
     out_file = output_folder / excel_filename
 
     with pd.ExcelWriter(out_file, engine="openpyxl") as writer:
         # Peaks + signals (same sheet as before)
-        peaks_binned.to_excel(
-            writer, sheet_name="Binned Data", index=False, startrow=0)
+        peaks_binned.to_excel(writer, sheet_name="Binned Data", index=False, startrow=0)
         start_row = len(peaks_binned) + 3
         signal_binned.to_excel(
-            writer, sheet_name="Binned Data", index=False, startrow=start_row)
+            writer, sheet_name="Binned Data", index=False, startrow=start_row
+        )
 
         # Raw data in a separate sheet
         df_raw.to_excel(writer, sheet_name="Raw Data", index=False)

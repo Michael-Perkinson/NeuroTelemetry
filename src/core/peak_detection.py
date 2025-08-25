@@ -1,14 +1,13 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 from scipy.signal import find_peaks
-from typing import List, Tuple
 
 
 def find_shoulders(
     dvdt_segment: np.ndarray,
     start_index: int,
     peak_index: int,
-    threshold_factor: float = 0.1
+    threshold_factor: float = 0.1,
 ) -> int:
     if dvdt_segment.size == 0:
         return start_index
@@ -21,7 +20,7 @@ def find_shoulders(
     dvdt_left_of_min = dvdt_segment[:global_min_index]
 
     # Last +→– zero crossing in the left-of-min region
-    zero_crossing_indices: List[int] = []
+    zero_crossing_indices: list[int] = []
     for i in range(dvdt_left_of_min.size - 1):
         if dvdt_left_of_min[i] >= 0 and dvdt_left_of_min[i + 1] < 0:
             zero_crossing_indices.append(i + 1)
@@ -35,7 +34,9 @@ def find_shoulders(
         else:
             search_start_index = 0
             print(
-                f"Warning: No zero crossing found for peak at {peak_index}, using start of segment")
+                f"Warning: No zero crossing found for peak at {peak_index}, "
+                "using start of segment"
+            )
 
     if search_start_index >= global_min_index:
         return int(start_index + global_min_index - 1)
@@ -60,18 +61,15 @@ def find_shoulders(
 
 
 def find_peaks_and_shoulders(
-    time: pd.Series,
-    pressure: np.ndarray,
-    dvdt: np.ndarray
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, List[int]]:
-    
+    time: pd.Series, pressure: np.ndarray, dvdt: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[int]]:
     time_win = np.asarray(time.values)
     pressure_win = pressure
     dvdt_win = dvdt
 
     peaks, _ = find_peaks(-pressure_win, prominence=3, distance=50)
 
-    shoulders: List[int] = []
+    shoulders: list[int] = []
     for i, pk in enumerate(peaks):
         start = peaks[i - 1] if i > 0 else 0
         dvdt_seg = dvdt_win[start:pk]
@@ -82,30 +80,27 @@ def find_peaks_and_shoulders(
 
 
 def analyse_peaks(
-    time_windows: List[Tuple[float, float]],
+    time_windows: list[tuple[float, float]],
     pressure_data: pd.DataFrame,
-) -> List[
-    Tuple[
-        float, float, np.ndarray, pd.Series, np.ndarray, pd.Series
-    ]
-]:
+) -> list[tuple[float, float, np.ndarray, pd.Series, list[int], pd.Series]]:
     results = []
 
     for start_time, end_time in time_windows:
-        window_mask = (pressure_data['TimeSinceReference'] >= start_time) & (
-            pressure_data['TimeSinceReference'] <= end_time)
-        smoothed_window = pressure_data.loc[window_mask, 'SmoothedPressure']
+        window_mask = (pressure_data["TimeSinceReference"] >= start_time) & (
+            pressure_data["TimeSinceReference"] <= end_time
+        )
+        smoothed_window = pressure_data.loc[window_mask, "SmoothedPressure"]
         pressure_data_window = pressure_data[window_mask]
-        dvdt_window = pressure_data.loc[window_mask, 'dvdt']
+        dvdt_window = pressure_data.loc[window_mask, "dvdt"]
 
         smoothed_array = smoothed_window.to_numpy()
         dvdt_array = dvdt_window.to_numpy()
-        time_array = pressure_data_window['TimeSinceReference']
+        time_array = pressure_data_window["TimeSinceReference"]
 
         _, _, _, peaks, shoulders = find_peaks_and_shoulders(
             time_array, smoothed_array, dvdt_array
         )
-        
+
         peaks = np.array(peaks)
         shoulders = np.array(shoulders)
 
@@ -114,19 +109,14 @@ def analyse_peaks(
             peaks = peaks[:min_len]
             shoulders = shoulders[:min_len]
 
-        peak_times = pressure_data_window['TimeSinceReference'].iloc[peaks]
-        shoulder_times = pressure_data_window['TimeSinceReference'].iloc[shoulders]
+        peak_times = pressure_data_window["TimeSinceReference"].iloc[peaks]
+        shoulder_times = pressure_data_window["TimeSinceReference"].iloc[shoulders]
 
         if len(peak_times) != len(shoulder_times):
-            peak_times = peak_times[:len(shoulder_times)]
+            peak_times = peak_times[: len(shoulder_times)]
 
-        results.append((
-            start_time,
-            end_time,
-            peaks,
-            peak_times,
-            shoulders,
-            shoulder_times
-        ))
+        results.append(
+            (start_time, end_time, peaks, peak_times, shoulders, shoulder_times)
+        )
 
     return results

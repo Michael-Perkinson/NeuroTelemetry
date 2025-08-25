@@ -1,13 +1,12 @@
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 
 def bin_signal(
     signal_df: pd.DataFrame,
     bin_edges: np.ndarray,
     signal_col: str,
-    injection_sec: float
+    injection_sec: float,
 ) -> pd.DataFrame:
     """
     Bin signal data into fixed time windows relative to injection time.
@@ -28,19 +27,18 @@ def bin_signal(
         if len(vals) == 0:
             mean, sem = np.nan, np.nan
         else:
-            mean = np.nanmean(vals)
-            sem = np.nanstd(vals, ddof=1) / np.sqrt(np.sum(~np.isnan(vals)))
+            mean = float(np.nanmean(vals))
+            sem = float(np.nanstd(vals, ddof=1)) / np.sqrt(np.sum(~np.isnan(vals)))
 
-        results.append([bin_edges[i], bin_edges[i+1], mean, sem])
+        results.append([bin_edges[i], bin_edges[i + 1], mean, sem])
 
     return pd.DataFrame(results, columns=["BinStart", "BinEnd", "Mean", "SEM"])
 
 
-
 def combine_signal_bins(
     photometry_binned: pd.DataFrame,
-    temp_binned: Optional[pd.DataFrame],
-    activity_binned: Optional[pd.DataFrame],
+    temp_binned: pd.DataFrame | None,
+    activity_binned: pd.DataFrame | None,
 ) -> pd.DataFrame:
     # Base bins from photometry
     df = photometry_binned.rename(
@@ -72,8 +70,14 @@ def combine_signal_bins(
 
     # Columns now carry bins aligned to injection (negative to positive)
     return df[
-        ["BinStart", "BinEnd",
-         "dFoF_Mean", "dFoF_SEM",
-         "Temp_Mean", "Temp_SEM",
-         "Act_Mean", "Act_SEM"]
+        [
+            "BinStart",
+            "BinEnd",
+            "dFoF_Mean",
+            "dFoF_SEM",
+            "Temp_Mean",
+            "Temp_SEM",
+            "Act_Mean",
+            "Act_SEM",
+        ]
     ]

@@ -9,6 +9,7 @@ dev_env/
 dist/
 build/
 pressure_segment_exports/
+test_outputs/
 
 # PyInstaller spec file
 PressureAnalyzer.spec
@@ -41,3 +42,5 @@ venv/
 *.egg-info/
 .gitignore
 new_data_alignment.py
+.mypy_cache/
+.ruff_cache/
