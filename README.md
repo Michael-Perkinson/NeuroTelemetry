@@ -87,7 +87,7 @@ To stop using the virtual environment:
 
 ## Mac (macOS)
 
-### 1) Install Python for Mac (one time)
+### 1) Install Python for macOS (one time)
 
 1. Open: [Download Python for Mac](https://www.python.org/downloads/macos/)
 2. Click **Download Python 3.x.x**.
