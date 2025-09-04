@@ -45,16 +45,16 @@ This guide shows you how to run the project on your computer, even if you’ve n
 ### 4) Create a virtual environment on windows (venv)
 
    ```bat
-   python -m venv .venv
+   python -m venv venv
    ```
 
 ### 5) Activate the virtual environment (windows)
 
    ```bat
-   .venv\Scripts\activate.bat
+   venv\Scripts\activate.bat
    ```
 
-You should see `(.venv)` at the start of the line.
+You should see `(venv)` at the start of the line.
 
 ### 6) Upgrade pip and install requirements (windows)
 
@@ -73,7 +73,7 @@ You should see `(.venv)` at the start of the line.
 
    ```bat
    cd "C:\path\to\your\ProjectName"
-   .venv\Scripts\activate.bat
+   venv\Scripts\activate.bat
    python main.py
    ```
 
@@ -161,8 +161,8 @@ To stop using the virtual environment:
 - **`python` not found on macOS**  
   Use `python3` to create the venv. After activation, `python` works inside the venv.
 
-- **`No such file or directory: .venv/bin/activate`**  
+- **`No such file or directory: venv/bin/activate`**  
   You didn’t create the venv yet or you’re in the wrong folder. Run the venv creation step again and confirm you’re inside the project folder.
 
 - **Want to remove the venv and start over?**  
-  Close the terminal, delete the `.venv` folder, then redo steps 4–6.
+  Close the terminal, delete the `venv` folder, then redo steps 4–6.
