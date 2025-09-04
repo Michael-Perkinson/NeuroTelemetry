@@ -21,7 +21,6 @@ def read_and_process_photometry_file(photometry_file_path: Path) -> pd.DataFrame
     # Add TimeSinceReference in seconds
     df["TimeSinceReference"] = pd.to_numeric(df["# t_min"], errors="coerce") * 60.0
 
-    # Build cleaned dataframe
     keep_cols = ["TimeSinceReference"]
     for col in ["dFoF_465", "dFoF_405", "Z_465"]:
         if col in df.columns:

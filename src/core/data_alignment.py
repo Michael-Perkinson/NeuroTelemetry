@@ -58,7 +58,6 @@ def _decide_dayfirst_from_probe(
     Decide if a date string is day-first (dd/mm/yyyy) or month-first (mm/dd/yyyy),
     using the first timestamp and a known probe reference date.
     """
-    # Clean input string (handles uppercase + stray spaces/milliseconds)
     ts_str = str(first_timestamp_str).strip().upper()
 
     # Extract the two leading numbers (potentially day/month in some order)
@@ -105,7 +104,7 @@ def prepare_numerical_data(
     based on metadata. If duplicate signals exist, only the first occurrence
     is kept. Returns the cleaned numerical data and sample rates.
     """
-    # Normalize signal names
+
     name_map = {
         "temp": "Temp",
         "temperature": "Temp",
@@ -114,7 +113,6 @@ def prepare_numerical_data(
         "act": "Activity",
     }
 
-    # Filter metadata rows starting with "# Col"
     mask = meta_data[0].str.startswith("# Col")
     cols = meta_data.loc[mask, [0, 1, 4]]
 
@@ -149,7 +147,6 @@ def prepare_numerical_data(
         rate_str = cols.loc[idx, 4]
         sample_rates[sig] = float(rate_str.split(":")[1].strip())
 
-    # Drop header row
     all_numerical_data = all_numerical_data.iloc[1:].reset_index(drop=True)
 
     return all_numerical_data, sample_rates
@@ -224,7 +221,6 @@ def build_output_frames(
     """
     processed: dict[str, pd.DataFrame] = {}
 
-    # Pressure
     if "Pressure" in numerical_data:
         pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
         pressure_rate = sample_rates["Pressure"]
@@ -232,7 +228,6 @@ def build_output_frames(
         pressure_df = preprocess_pressure_data(pressure_df, pressure_rate)
         processed["Pressure"] = pressure_df
 
-    # Temp
     if "Temp" in numerical_data:
         pressure_rate = sample_rates.get("Pressure") or sample_rates["Temp"]
         temp_rate = sample_rates["Temp"]
@@ -241,7 +236,6 @@ def build_output_frames(
         downsampled = numerical_data.iloc[::temp_interval].copy()
         processed["Temp"] = downsampled[["TimeSinceReference", "Temp"]]
 
-    # Activity
     if "Activity" in numerical_data:
         pressure_rate = sample_rates.get("Pressure") or sample_rates["Activity"]
         act_rate = sample_rates["Activity"]
@@ -260,10 +254,8 @@ def parse_numerical_data(
 ) -> pd.DataFrame:
     """Parse telemetry dataframe into numeric values with timestamps."""
 
-    # Copy and ensure canonical column names already set
     numerical_data = all_numerical_data.copy()
 
-    # Convert numeric columns (skip DateTime)
     for col in numerical_data.columns:
         if col != "DateTime":
             numerical_data[col] = pd.to_numeric(numerical_data[col], errors="coerce")
@@ -314,12 +306,10 @@ def align_and_clean_datetime(
     else:
         raise ValueError("No usable signal found (Pressure/Temp/Activity missing).")
 
-    # remove duplicate timestamps
     numerical_data = numerical_data.drop_duplicates(subset="DateTime").reset_index(
         drop=True
     )
 
-    # find first valid entry
     first_valid_index = numerical_data[anchor_col].first_valid_index()
     if first_valid_index is None:
         raise ValueError(f"No valid {anchor_col} data found.")
@@ -327,20 +317,20 @@ def align_and_clean_datetime(
     first_valid_time = numerical_data.at[first_valid_index, "DateTime"]
     last_valid_time = numerical_data["DateTime"].iloc[-1]
 
-    # --- sanity check for reference timestamp ---
+    # Sanity check for reference timestamp
     if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
         raise ValueError(
             f"Reference timestamp {probe_reference_timestamp} not within "
             f"data range ({first_valid_time} → {last_valid_time})."
         )
 
-    # new reference = first valid time
+    # New reference = first valid time
     new_reference_timestamp = first_valid_time
     removed_nan_time_diff = (
         first_valid_time - probe_reference_timestamp
     ).total_seconds()
 
-    # trim rows before first valid entry
+    # Trim rows before first valid entry
     numerical_data = numerical_data.loc[first_valid_index:].reset_index(drop=True)
 
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
@@ -351,10 +341,8 @@ def preprocess_pressure_data(
 ) -> pd.DataFrame:
     """Preprocess pressure signal by detrending, low-pass filtering, and smoothing."""
 
-    # Always copy to avoid SettingWithCopyWarning
     pressure_data = pressure_data.copy()
 
-    # Interpolate missing values
     pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(method="linear")
 
     # Drop trailing NaNs if any
@@ -362,13 +350,11 @@ def preprocess_pressure_data(
     log_info(f"Last valid index (non-NaN in Pressure): {last_valid_index}")
     pressure_data = pressure_data.loc[:last_valid_index]
 
-    # Detrend
     detrended = detrend(
         pressure_data["Pressure"].to_numpy(dtype="float64"),
         type="linear",
     )
 
-    # Butterworth low-pass filter
     filtered = butter_lowpass_filter(detrended, cutoff_hz=10, fs=500)
 
     # Ensure window is odd and fits signal length
@@ -376,11 +362,9 @@ def preprocess_pressure_data(
     if window % 2 == 0:
         window -= 1
 
-    # Savitzky-Golay smoothing
     smoothed = savgol_filter(filtered, window_length=window, polyorder=2)
     dvdt = compute_first_derivative(filtered, pressure_sample_rate)
 
-    # Update DataFrame
     pressure_data["SmoothedPressure"] = smoothed
     pressure_data["dvdt"] = dvdt
 
@@ -393,6 +377,10 @@ def adjust_behaviours(
     behaviour_data: dict[str, list[tuple[int, float, float, float]]],
     total_time_diff: float,
 ) -> dict[str, list[tuple[int, float, float, float]]]:
+    """
+    Shift start and end times of behaviour instances by a given offset.
+    Behaviour instances with negative adjusted times are skipped.
+    """
     behaviour_data = deepcopy(behaviour_data)
     for behaviour, instances in behaviour_data.items():
         adjusted_instances: list[tuple[int, float, float, float]] = []

@@ -69,7 +69,7 @@ def run_photometry_pipeline(
         else:
             print(msg)
 
-    # ---- Setup analysis folder ----
+    # Analysis folders
     file_base = Path(output_path).stem
     analysis_folder = Path("extracted_data") / f"{file_base}_PhotometryAnalysis"
     analysis_folder.mkdir(parents=True, exist_ok=True)
@@ -77,7 +77,6 @@ def run_photometry_pipeline(
     date_str = datetime.now().strftime("%Y%m%d")
     excel_filename = f"{file_base}_photometry_{date_str}.xlsx"
 
-    # ---- Process telemetry ----
     log("Processing telemetry...")
     processed_telemetry = extract_and_process_data(
         telemetry_df,
@@ -85,10 +84,9 @@ def run_photometry_pipeline(
         probe_date_time=photometry_align_time,
         alignment_date_time=photometry_align_time,
     )
-    temp_data = processed_telemetry.get("Temp")
-    activity_data = processed_telemetry.get("Activity")
+    temp_data = pd.DataFrame(processed_telemetry.get("Temp"))
+    activity_data = pd.DataFrame(processed_telemetry.get("Activity"))
 
-    # ---- Process photometry ----
     log("Processing photometry data...")
     photo_min_time, photo_max_time = get_time_bounds(photometry_df)
     start_time = injection_sec - pre_minutes * 60
@@ -116,7 +114,6 @@ def run_photometry_pipeline(
 
     df_raw = prepare_raw_data(photometry_df, temp_data, activity_data, injection_sec)
 
-    # ---- Summaries & binning ----
     log("Summarizing data...")
     bin_size_sec = bin_minutes * 60
 
@@ -134,7 +131,6 @@ def run_photometry_pipeline(
 
     signal_binned = combine_signal_bins(photometry_binned, temp_binned, activity_binned)
 
-    # ---- Plots ----
     log("Creating output folders...")
     html_folder, svg_folder, full_trace_folder, _ = create_folders_for_graphs(
         analysis_folder
@@ -155,7 +151,6 @@ def run_photometry_pipeline(
         main_signal_label="Photometry",
     )
 
-    # ---- Excel ----
     log("Saving Excel output...")
     export_binned_data_to_excel(
         output_folder=analysis_folder,
