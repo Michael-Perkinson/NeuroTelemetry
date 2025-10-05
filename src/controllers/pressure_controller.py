@@ -88,7 +88,7 @@ def run_pressure_pipeline(
 
     log("Selecting time windows...")
     time_windows = select_time_windows(
-        behaviour_to_plot, behaviour_data, new_reference_timestamp
+        behaviour_to_plot, processed_data["Behaviours"], new_reference_timestamp
     )
 
     if not time_windows:

@@ -196,7 +196,11 @@ def extract_and_process_data(
     return processed_data
 
 
-def compute_time_offsets(video_ref, probe_ref, removed_nan):
+def compute_time_offsets(
+    video_ref: datetime,
+    probe_ref: datetime,
+    removed_nan: float,
+) -> tuple[float, float]:
     video_diff = (video_ref - probe_ref).total_seconds()
     total = video_diff + removed_nan
     return video_diff, total
