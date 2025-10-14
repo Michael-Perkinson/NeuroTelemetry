@@ -82,19 +82,29 @@ def build_export_data(
         if window_key == "GlobalSummary":
             continue
 
-        # Window-level summary
+        # --- Window-level summary
         window_summary = window_content.get("WindowSummary", {})
         if window_summary:
             per_window_rows.append({"Window": window_key, **window_summary})
 
+        # --- Per-period and per-bin data
         for period_name, period_data in window_content.get("Periods", {}).items():
             # Binned data
             binned_df = period_data.get("Binned", pd.DataFrame())
+
             if not binned_df.empty:
                 binned_df = binned_df.copy()
                 binned_df.insert(0, "Period", period_name)
                 binned_df.insert(0, "Window", window_key)
                 per_bin_rows.append(binned_df)
+            else:
+                # Placeholder row for too-short or empty periods
+                placeholder = pd.DataFrame([{
+                    "Window": window_key,
+                    "Period": period_name,
+                    "Note": "Not enough time for binning"
+                }])
+                per_bin_rows.append(placeholder)
 
             # Summary data
             period_summary = period_data.get("Summary", {})
@@ -104,13 +114,12 @@ def build_export_data(
                 )
                 per_period_rows.append(summary_df)
 
-    # Add spacing
+    # --- Add spacing between logical groups
     per_bin_df = insert_blank_rows(per_bin_rows, "Period")
     per_period_df = insert_blank_rows(per_period_rows, "Window")
     per_window_df = pd.DataFrame(per_window_rows)
 
     return per_bin_df, per_period_df, per_window_df
-
 
 def export_data_to_excel(
     summary_data: list[dict], all_metrics: dict, data_file_path: str

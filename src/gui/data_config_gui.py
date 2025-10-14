@@ -2,10 +2,11 @@
 
 import traceback
 from pathlib import Path
+from datetime import datetime
+
 
 from PySide6.QtCore import QDateTime, Qt
 from PySide6.QtWidgets import (
-    QApplication,
     QDateTimeEdit,
     QFileDialog,
     QGridLayout,
@@ -33,7 +34,6 @@ from src.core.file_handling import detect_file_type
 class DataConfigGUI(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Telemetry Alignment Analysis")
         self.setStyleSheet("""
             QWidget { background-color: #2b2b2b; color: white; font-size: 10pt; }
             QLineEdit[readOnly="true"] { background: #1e1e1e; }
@@ -45,7 +45,8 @@ class DataConfigGUI(QWidget):
         # Input files
         self.add_global_section_title("Input Files")
         self.telemetry_path = self.create_file_selector("Telemetry Data File")
-        self.secondary_path = self.create_file_selector("Behaviour or Photometry File")
+        self.secondary_path = self.create_file_selector(
+            "Behaviour or Photometry File")
 
         # --- Option panels stacked ---
         self.stack = QStackedWidget()
@@ -60,9 +61,10 @@ class DataConfigGUI(QWidget):
         self.file_mode = "unknown"
 
         # Run button
-        self.launch_button = QPushButton("Run Analysis")
-        self.launch_button.clicked.connect(self.launch_analysis)
-        self.main_layout.addWidget(self.launch_button)
+        self.run_button = QPushButton("Run Analysis")
+        self.run_button.clicked.connect(self.run_analysis)
+        self.main_layout.addWidget(self.run_button)
+        self.run_button.setEnabled(False)
 
         # Log
         self.add_global_section_title("Log")
@@ -102,7 +104,8 @@ class DataConfigGUI(QWidget):
         entry.setProperty("readOnly", True)
         btn = QPushButton("Browse")
         btn.setFixedWidth(80)
-        entry.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        entry.setSizePolicy(QSizePolicy.Policy.Expanding,
+                            QSizePolicy.Policy.Fixed)
         btn.clicked.connect(lambda: self.select_file(entry))
         layout.addWidget(lbl)
         layout.addWidget(entry)
@@ -126,10 +129,7 @@ class DataConfigGUI(QWidget):
         layout.setContentsMargins(20, 0, 0, 0)
         lbl = QLabel(label)
         lbl.setFixedWidth(220)
-        dt = QDateTimeEdit()
-        dt.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
-        dt.setDateTime(QDateTime.currentDateTime())
-        dt.setCalendarPopup(True)
+        dt = self.make_datetime_edit()
         layout.addWidget(lbl)
         layout.addWidget(dt)
         return layout, dt
@@ -157,18 +157,12 @@ class DataConfigGUI(QWidget):
 
         # Probe + video start
         probe_lbl = QLabel("Probe Start Time")
-        self.probe_time = QDateTimeEdit()
-        self.probe_time.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
-        self.probe_time.setDateTime(QDateTime.currentDateTime())
-        self.probe_time.setCalendarPopup(True)
+        self.probe_time = self.make_datetime_edit()
         grid.addWidget(probe_lbl, 1, 0)
         grid.addWidget(self.probe_time, 1, 1)
 
         video_lbl = QLabel("Video Start Time")
-        self.video_time = QDateTimeEdit()
-        self.video_time.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
-        self.video_time.setDateTime(QDateTime.currentDateTime())
-        self.video_time.setCalendarPopup(True)
+        self.video_time = self.make_datetime_edit()
         grid.addWidget(video_lbl, 2, 0)
         grid.addWidget(self.video_time, 2, 1)
 
@@ -201,10 +195,7 @@ class DataConfigGUI(QWidget):
 
         # Photometry start time (keep as datetime)
         start_lbl = QLabel("Photometry Start Time")
-        self.photometry_start_time = QDateTimeEdit()
-        self.photometry_start_time.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
-        self.photometry_start_time.setDateTime(QDateTime.currentDateTime())
-        self.photometry_start_time.setCalendarPopup(True)
+        self.photometry_start_time = self.make_datetime_edit()
         grid.addWidget(start_lbl, 1, 0)
         grid.addWidget(self.photometry_start_time, 1, 1, 1, 3)
 
@@ -237,6 +228,13 @@ class DataConfigGUI(QWidget):
 
     # -------------------- Helpers --------------------
 
+    def make_datetime_edit(self):
+        dt = QDateTimeEdit()
+        dt.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
+        dt.setDateTime(QDateTime.currentDateTime())
+        dt.setCalendarPopup(True)
+        return dt
+
     def select_file(self, target_entry):
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -247,6 +245,8 @@ class DataConfigGUI(QWidget):
             target_entry.setText(path)
             if target_entry is self.secondary_path:
                 self.on_secondary_file_changed()
+        else:
+            target_entry.clear()
 
     def on_secondary_file_changed(self):
         path = Path(self.secondary_path.text())
@@ -256,24 +256,34 @@ class DataConfigGUI(QWidget):
             return
 
         ftype = detect_file_type(path)
-        if ftype == "behaviour":
-            self.stack.setCurrentWidget(self.behaviour_panel)
+        mapping = {
+            "behaviour": self.behaviour_panel,
+            "photometry": self.photometry_panel,
+        }
+        panel = mapping.get(ftype)
+        if panel:
+            self.stack.setCurrentWidget(panel)
             self.stack.setVisible(True)
-            self.file_mode = "behaviour"
-        elif ftype == "photometry":
-            self.stack.setCurrentWidget(self.photometry_panel)
-            self.stack.setVisible(True)
-            self.file_mode = "photometry"
+            self.file_mode = ftype
+            self.run_button.setEnabled(True)
+
         else:
             self.stack.setVisible(False)
             self.file_mode = "unknown"
+            QMessageBox.warning(
+                self,
+                "Unrecognized File",
+                "Could not detect file type.\nPlease choose a valid Behaviour or Photometry file.",
+            )
 
     def log(self, msg):
-        self.log_box.appendPlainText(msg)
+        ts = datetime.now().strftime("[%H:%M:%S]")
+        self.log_box.appendPlainText(f"{ts} {msg}")
 
     # -------------------- Analysis --------------------
 
-    def launch_analysis(self):
+    def run_analysis(self):
+        self.run_button.setEnabled(False)
         try:
             telemetry_path = Path(self.telemetry_path.text())
             if not telemetry_path.exists():
@@ -298,16 +308,17 @@ class DataConfigGUI(QWidget):
                         "dd/MM/yyyy hh:mm:ss AP"
                     ),
                     injection_sec=self.injection_sec.value(),
-                    pre_minutes=self.photo_pre_min.value(),
-                    post_minutes=self.photo_post_min.value(),
-                    bin_minutes=self.photo_bin_min.value(),
-                    output_path=telemetry_path,
+                    pre_min=self.photo_pre_min.value(),
+                    post_min=self.photo_post_min.value(),
+                    bin_min=self.photo_bin_min.value(),
+                    telemetry_path=telemetry_path,
                     log_callback=self.log,
                 )
 
             elif self.file_mode == "behaviour":
                 self.log("Loading telemetry and behaviour data...")
-                telemetry_df, behaviour_df = load_data(telemetry_path, second_path)
+                telemetry_df, behaviour_df = load_data(
+                    telemetry_path, second_path)
 
                 self.log("Running behaviour analysis...")
                 run_pressure_pipeline(
@@ -326,17 +337,15 @@ class DataConfigGUI(QWidget):
                 )
 
             else:
-                raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
+                raise ValueError(
+                    "Unknown file type. Must be Behaviour or Photometry.")
 
         except Exception as e:
             self.log(f"Error: {e}")
             self.log(traceback.format_exc())
             QMessageBox.critical(self, "Error", str(e))
 
-
-if __name__ == "__main__":
-    app = QApplication([])
-    w = DataConfigGUI()
-    w.resize(900, 700)
-    w.show()
-    app.exec()
+        finally:
+            self.run_button.setEnabled(True)
+            self.log("Analysis complete.")
+            self.log("=" * 40)

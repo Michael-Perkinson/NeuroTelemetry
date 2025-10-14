@@ -16,10 +16,12 @@ def read_and_process_photometry_file(photometry_file_path: Path) -> pd.DataFrame
     df = pd.read_csv(photometry_file_path)
 
     if "# t_min" not in df.columns:
-        raise ValueError("Photometry file must contain a '# t_min' column (minutes).")
+        raise ValueError(
+            "Photometry file must contain a '# t_min' column (minutes).")
 
     # Add TimeSinceReference in seconds
-    df["TimeSinceReference"] = pd.to_numeric(df["# t_min"], errors="coerce") * 60.0
+    df["TimeSinceReference"] = pd.to_numeric(
+        df["# t_min"], errors="coerce") * 60.0
 
     # Build cleaned dataframe
     keep_cols = ["TimeSinceReference"]
@@ -39,3 +41,11 @@ def detect_skip_rows(data: pd.DataFrame) -> int:
         if str(line).strip().startswith("Time"):
             return i
     return 0
+
+
+def safe_get_df(data: dict, key: str) -> pd.DataFrame:
+    df = data.get(key)
+    if key == "Pressure" and df is None:
+        raise ValueError(
+            "Pressure data is required but not found in processed data.")
+    return df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()

@@ -60,3 +60,10 @@ def select_time_windows(
     ]
 
     return [(start, end) for _, start, end, _ in filtered]
+
+
+def structure_behaviour_events(event_df: pd.DataFrame) -> dict[str, list[tuple]]:
+    return {
+        str(event): list(group[["instance", "start", "end", "duration"]].itertuples(index=False, name=None))
+        for event, group in event_df.groupby("event")
+    }

@@ -8,6 +8,7 @@ from src.core.respiratory_metrics import (
     calculate_valid_period_metrics,
     summarize_respiratory_cycles,
 )
+from src.core.logger import log_exception, log_info
 
 
 def find_valid_periods(
@@ -25,8 +26,8 @@ def find_valid_periods(
         ],
     ],
     pressure_data: pd.DataFrame,
-    temp_data: pd.DataFrame,
-    activity_data: pd.DataFrame,
+    temp_data: pd.DataFrame | None,
+    activity_data: pd.DataFrame | None,
     time_windows: list[tuple[float, float]],
     bin_size_sec: int,
 ) -> tuple[
@@ -47,7 +48,8 @@ def find_valid_periods(
         window_key = f"{window_start_time}-{window_end_time}"
         window_results = results.get(window_key, [])
         if not window_results:
-            print(f"No results found for time window {window_key}. Skipping.")
+            log_info(
+                f"No results found for time window {window_key}. Skipping.")
             continue
 
         window_periods = {}
@@ -75,7 +77,7 @@ def find_valid_periods(
             )
 
             if not valid_periods:
-                print(f"No valid periods found for {window_key}. Skipping.")
+                log_info(f"No valid periods found for {window_key}. Skipping.")
                 continue
 
             for i, (period_start_time, period_end_time) in enumerate(valid_periods):
@@ -119,8 +121,8 @@ def find_valid_periods(
                     period_peak_times,
                     period_trough_times,
                     pressure_data,
-                    temp_data,
-                    activity_data,
+                    temp_data if temp_data is not None else pd.DataFrame(),
+                    activity_data if activity_data is not None else pd.DataFrame(),
                 )
 
                 summary_metrics = calculate_valid_period_metrics(
@@ -183,7 +185,7 @@ def identify_new_periods(
     )
 
     if len(peak_times_filtered) < min_peaks:
-        print("Not enough peaks in the window to form a valid period.")
+        log_info("Not enough peaks in the window to form a valid period.")
         return []
 
     valid_periods = []
@@ -206,12 +208,12 @@ def identify_new_periods(
             if len(current_period_peaks) >= min_peaks:
                 period_end = previous_peak
                 valid_periods.append((current_period_start, period_end))
-                print(
+                log_info(
                     f"Valid period: {current_period_start:.3f}s to {period_end:.3f}s "
                     f"with {len(current_period_peaks)} peaks"
                 )
             else:
-                print(
+                log_info(
                     f"Discarded: {current_period_start:.3f}s to "
                     f"{previous_peak:.3f}s with only {len(current_period_peaks)} peaks"
                 )
@@ -226,12 +228,12 @@ def identify_new_periods(
     if len(current_period_peaks) >= min_peaks:
         period_end = peak_times_filtered[-1]
         valid_periods.append((current_period_start, period_end))
-        print(
+        log_info(
             f"Valid period: {current_period_start:.3f}s to "
             f"{period_end:.3f}s with {len(current_period_peaks)} peaks"
         )
     else:
-        print(
+        log_info(
             f"Discarded last: {current_period_start:.3f}s to "
             f"{peak_times_filtered[-1]:.3f}s with only "
             f"{len(current_period_peaks)} peaks"

@@ -196,6 +196,7 @@ def extract_and_process_data(
         processed_data["Behaviours"] = adjust_behaviours(behaviour_data, total_offset)
 
     processed_data["ReferenceTimestamp"] = new_ref
+    
     return processed_data
 
 
@@ -214,44 +215,47 @@ def parse_reference_timestamps(
     return probe_ref, align_ref
 
 
-def build_output_frames(
-    numerical_data: pd.DataFrame,
-    sample_rates: dict[str, float],
-) -> dict[str, pd.DataFrame]:
+def build_output_frames(numerical_data: pd.DataFrame,
+                        sample_rates: dict[str, float]) -> dict[str, pd.DataFrame]:
     """
-    Downsample Temp and Activity to their native rates.
-    Pressure is passed through if present.
+    Properly align pressure, temperature, and activity signals.
+    Temperature and activity are interpolated onto the pressure time base.
     """
-    processed: dict[str, pd.DataFrame] = {}
+    processed = {}
 
-    # Pressure
+    # --- Pressure ---
     if "Pressure" in numerical_data:
         pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
-        pressure_rate = sample_rates["Pressure"]
+        prate = sample_rates["Pressure"]
+        processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
+    else:
+        raise ValueError("Pressure channel missing; cannot build timeline.")
 
-        pressure_df = preprocess_pressure_data(pressure_df, pressure_rate)
-        processed["Pressure"] = pressure_df
+    time_axis = processed["Pressure"]["TimeSinceReference"]
 
-    # Temp
+    # --- Temperature ---
     if "Temp" in numerical_data:
-        pressure_rate = sample_rates.get("Pressure") or sample_rates["Temp"]
-        temp_rate = sample_rates["Temp"]
-        temp_interval = max(1, int(pressure_rate / temp_rate))
+        temp_df = numerical_data[[
+            "TimeSinceReference", "Temp"]].dropna().copy()
+        interp_temp = np.interp(
+            time_axis, temp_df["TimeSinceReference"], temp_df["Temp"]
+        )
+        processed["Temp"] = pd.DataFrame(
+            {"TimeSinceReference": time_axis, "Temp": interp_temp}
+        )
 
-        downsampled = numerical_data.iloc[::temp_interval].copy()
-        processed["Temp"] = downsampled[["TimeSinceReference", "Temp"]]
-
-    # Activity
+    # --- Activity ---
     if "Activity" in numerical_data:
-        pressure_rate = sample_rates.get("Pressure") or sample_rates["Activity"]
-        act_rate = sample_rates["Activity"]
-        act_interval = max(1, int(pressure_rate / act_rate))
-
-        downsampled = numerical_data.iloc[::act_interval].copy()
-        processed["Activity"] = downsampled[["TimeSinceReference", "Activity"]]
+        act_df = numerical_data[[
+            "TimeSinceReference", "Activity"]].dropna().copy()
+        interp_act = np.interp(
+            time_axis, act_df["TimeSinceReference"], act_df["Activity"]
+        )
+        processed["Activity"] = pd.DataFrame(
+            {"TimeSinceReference": time_axis, "Activity": interp_act}
+        )
 
     return processed
-
 
 def parse_numerical_data(
     all_numerical_data: pd.DataFrame,

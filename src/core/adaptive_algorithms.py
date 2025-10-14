@@ -43,6 +43,11 @@ def get_time_bounds(pressure_data: pd.DataFrame) -> tuple[float, float]:
     return min_time, max_time
 
 
+def compute_time_window(photo_min_time, photo_max_time, injection_sec, pre_min, post_min):
+    start_time = injection_sec - pre_min * 60
+    end_time = injection_sec + post_min * 60
+    return max(photo_min_time, start_time), min(photo_max_time, end_time)
+
 def get_nearest_points(
     target_times: list[float], df: pd.DataFrame, time_col: str, value_col: str
 ) -> tuple[list[float], list[float]]:

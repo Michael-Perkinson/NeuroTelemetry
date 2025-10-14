@@ -82,12 +82,13 @@ def find_peaks_and_shoulders(
 def analyse_peaks(
     time_windows: list[tuple[float, float]],
     pressure_data: pd.DataFrame,
-) -> list[tuple[float, float, np.ndarray, pd.Series, list[int], pd.Series]]:
+) -> list[tuple[float, float, np.ndarray, pd.Series, np.ndarray, pd.Series]]:
     results = []
 
     for start_time, end_time in time_windows:
-        window_mask = (pressure_data["TimeSinceReference"] >= start_time) & (
-            pressure_data["TimeSinceReference"] <= end_time
+        window_mask = (
+            (pressure_data["TimeSinceReference"] >= start_time)
+            & (pressure_data["TimeSinceReference"] <= end_time)
         )
         smoothed_window = pressure_data.loc[window_mask, "SmoothedPressure"]
         pressure_data_window = pressure_data[window_mask]
@@ -101,14 +102,17 @@ def analyse_peaks(
             time_array, smoothed_array, dvdt_array
         )
 
-        peaks = np.array(peaks)
-        shoulders = np.array(shoulders)
+        # Ensure NumPy arrays
+        peaks = np.asarray(peaks, dtype=int)
+        shoulders = np.asarray(shoulders, dtype=int)
 
+        # Truncate to match lengths if necessary
         if len(peaks) != len(shoulders):
             min_len = min(len(peaks), len(shoulders))
             peaks = peaks[:min_len]
             shoulders = shoulders[:min_len]
 
+        # Extract corresponding timestamps
         peak_times = pressure_data_window["TimeSinceReference"].iloc[peaks]
         shoulder_times = pressure_data_window["TimeSinceReference"].iloc[shoulders]
 
