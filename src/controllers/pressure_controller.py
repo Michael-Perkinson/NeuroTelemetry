@@ -1,13 +1,17 @@
-from pathlib import Path
-from datetime import datetime
 import json
+from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 
 from src.core.adaptive_algorithms import get_time_bounds
 from src.core.data_alignment import extract_and_process_data
 from src.core.data_file_parser import retrieve_telemetry_data, safe_get_df
-from src.core.event_file_parser import read_and_process_event_file, select_time_windows, structure_behaviour_events
+from src.core.event_file_parser import (
+    read_and_process_event_file,
+    select_time_windows,
+    structure_behaviour_events,
+)
 from src.core.export_data import create_summary_data, export_data_to_excel
 from src.core.export_graphs import (
     export_behavior_images_interactive,
@@ -16,7 +20,10 @@ from src.core.export_graphs import (
 from src.core.file_handling import create_folders_for_graphs, list_files
 from src.core.logger import log_exception, log_info
 from src.core.peak_detection import analyse_peaks
-from src.core.period_analysis import find_valid_periods
+from src.core.period_analysis import (
+    compute_respiratory_metrics_for_periods,
+    find_valid_periods,
+)
 
 
 def load_data(
@@ -35,10 +42,8 @@ def load_data(
     except Exception as e:
         log_exception(e)
 
-        telemetry_dir_files = list_files(
-            telemetry_path.parent, ["csv", "txt", "ascii"])
-        event_dir_files = list_files(
-            event_path.parent, ["csv", "txt", "ascii"])
+        telemetry_dir_files = list_files(telemetry_path.parent, ["csv", "txt", "ascii"])
+        event_dir_files = list_files(event_path.parent, ["csv", "txt", "ascii"])
 
         error_message = (
             f"Data loading failed.\n\n"
@@ -62,6 +67,7 @@ def run_pressure_pipeline(
     log_callback=None,
 ) -> dict | None:
     """Run full analysis pipeline for pressure telemetry aligned to behaviors."""
+
     def log(msg: str):
         if log_callback:
             log_callback(msg)
@@ -70,8 +76,9 @@ def run_pressure_pipeline(
 
     start_time = datetime.now()
     file_base = output_path.stem
-    analysis_folder = output_path.parent / \
-        "extracted_data" / f"{file_base}_PressureAnalysis"
+    analysis_folder = (
+        output_path.parent / "extracted_data" / f"{file_base}_PressureAnalysis"
+    )
     analysis_folder.mkdir(parents=True, exist_ok=True)
 
     date_str = start_time.strftime("%Y%m%d_%H%M%S")
@@ -112,7 +119,7 @@ def run_pressure_pipeline(
 
     if not time_windows:
         log("No valid time windows found.")
-        return
+        return None
 
     log(f"Found {len(time_windows)} time windows.")
     log("Analyzing shoulders...")
@@ -139,9 +146,21 @@ def run_pressure_pipeline(
         valid_peak_times_all,
         valid_pre_peak_times_all,
         updated_valid_periods,
-        all_metrics,
+        window_periods,
     ) = find_valid_periods(
-        results, pressure_data, temp_data, activity_data, time_windows, bin_size_sec
+        results,
+        pressure_data,
+        time_windows,
+    )
+
+    log("Computing respiratory metrics...")
+    all_metrics = compute_respiratory_metrics_for_periods(
+        window_periods,
+        pressure_data,
+        temp_data,
+        activity_data,
+        time_windows,
+        bin_size_sec,
     )
 
     min_time, max_time = get_time_bounds(pressure_data)
@@ -191,7 +210,6 @@ def run_pressure_pipeline(
     export_data_to_excel(summary_data, all_metrics, str(base_name))
 
     log(f"Total runtime: {(datetime.now() - start_time).total_seconds():.1f}s")
-    log("Analysis complete.")
 
     return {
         "summary": summary_data,

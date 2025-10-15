@@ -1,6 +1,5 @@
-from scipy.signal import butter, filtfilt
-from typing import cast
 import math
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -29,8 +28,32 @@ def butter_lowpass_filter(
     normal_cutoff = cutoff_hz / nyquist
 
     # butter() returns tuple[ndarray, ndarray], but type hints are incomplete
-    b, a = cast(tuple[np.ndarray, np.ndarray], butter(
-        order, normal_cutoff, btype="low", analog=False))
+    b, a = cast(
+        tuple[np.ndarray, np.ndarray],
+        butter(order, normal_cutoff, btype="low", analog=False),
+    )
+
+    # filtfilt() returns an ndarray but is typed as Any
+    filtered = cast(np.ndarray, filtfilt(b, a, data))
+
+    return filtered
+
+
+def butter_highpass_filter(
+    data: np.ndarray,
+    fs: float,
+    cutoff_hz: float,
+    order: int = 3,
+) -> np.ndarray:
+    """Apply a high-pass Butterworth filter to 1D data."""
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff_hz / nyquist
+
+    # butter() returns tuple[ndarray, ndarray], but type hints are incomplete
+    b, a = cast(
+        tuple[np.ndarray, np.ndarray],
+        butter(order, normal_cutoff, btype="high", analog=False),
+    )
 
     # filtfilt() returns an ndarray but is typed as Any
     filtered = cast(np.ndarray, filtfilt(b, a, data))
@@ -60,7 +83,13 @@ def get_time_bounds(pressure_data: pd.DataFrame) -> tuple[float, float]:
     return min_time, max_time
 
 
-def compute_time_window(photo_min_time: float, photo_max_time: float, injection_sec: float, pre_min: float, post_min: float) -> tuple[float, float]:
+def compute_time_window(
+    photo_min_time: float,
+    photo_max_time: float,
+    injection_sec: float,
+    pre_min: float,
+    post_min: float,
+) -> tuple[float, float]:
     start_time = injection_sec - pre_min * 60
     end_time = injection_sec + post_min * 60
     return max(photo_min_time, start_time), min(photo_max_time, end_time)
@@ -88,8 +117,7 @@ def get_nearest_points(
     left_dists = np.abs(available_times[left_indices] - target_arr)
     right_dists = np.abs(available_times[right_indices] - target_arr)
 
-    best_indices = np.where(left_dists <= right_dists,
-                            left_indices, right_indices)
+    best_indices = np.where(left_dists <= right_dists, left_indices, right_indices)
 
     matched_times = available_times[best_indices]
     matched_values = values[best_indices]

@@ -44,3 +44,5 @@ venv/
 new_data_alignment.py
 .mypy_cache/
 .ruff_cache/
+detected_peaks.json
+tests/test_pressure_pipeline.py

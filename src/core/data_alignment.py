@@ -5,9 +5,13 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.signal import detrend, savgol_filter
+from scipy.signal import savgol_filter
 
-from src.core.adaptive_algorithms import butter_lowpass_filter, compute_first_derivative
+from src.core.adaptive_algorithms import (
+    butter_highpass_filter,
+    butter_lowpass_filter,
+    compute_first_derivative,
+)
 from src.core.data_file_parser import detect_skip_rows
 from src.core.logger import log_info
 
@@ -153,8 +157,7 @@ def prepare_numerical_data(
 
         # Optional sanity check
         if ":" not in rate_str:
-            raise ValueError(
-                f"Unexpected rate format in metadata: {rate_str!r}")
+            raise ValueError(f"Unexpected rate format in metadata: {rate_str!r}")
 
         parts = rate_str.split(":")
         sample_rates[sig] = float(parts[1].strip())
@@ -182,8 +185,7 @@ def extract_and_process_data(
         meta_data, all_numerical_data
     )
 
-    numerical_data = parse_numerical_data(
-        all_numerical_data, probe_ref, sample_rates)
+    numerical_data = parse_numerical_data(all_numerical_data, probe_ref, sample_rates)
 
     numerical_data, new_ref, removed_nan_offset = align_and_clean_datetime(
         numerical_data, probe_ref
@@ -193,8 +195,7 @@ def extract_and_process_data(
     alignment_offset, total_offset = compute_time_offsets(
         align_ref, probe_ref, removed_nan_offset
     )
-    log_info(
-        f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s")
+    log_info(f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s")
 
     # master timebase
     numerical_data["TimeSinceReference"] = (
@@ -202,12 +203,10 @@ def extract_and_process_data(
     ).dt.total_seconds()
 
     # build once, after finalised timeline
-    processed_data: dict[str, Any] = build_output_frames(
-        numerical_data, sample_rates)
+    processed_data: dict[str, Any] = build_output_frames(numerical_data, sample_rates)
 
     if behaviour_data is not None:
-        processed_data["Behaviours"] = adjust_behaviours(
-            behaviour_data, total_offset)
+        processed_data["Behaviours"] = adjust_behaviours(behaviour_data, total_offset)
 
     processed_data["ReferenceTimestamp"] = new_ref
 
@@ -229,8 +228,9 @@ def parse_reference_timestamps(
     return probe_ref, align_ref
 
 
-def build_output_frames(numerical_data: pd.DataFrame,
-                        sample_rates: dict[str, float]) -> dict[str, pd.DataFrame]:
+def build_output_frames(
+    numerical_data: pd.DataFrame, sample_rates: dict[str, float]
+) -> dict[str, pd.DataFrame]:
     processed = {}
 
     if "Pressure" not in numerical_data:
@@ -286,13 +286,11 @@ def parse_numerical_data(
     # Convert numeric columns (skip DateTime)
     for col in numerical_data.columns:
         if col != "DateTime":
-            numerical_data[col] = pd.to_numeric(
-                numerical_data[col], errors="coerce")
+            numerical_data[col] = pd.to_numeric(numerical_data[col], errors="coerce")
 
     # Decide date parsing order
     first_str = str(numerical_data["DateTime"].iloc[0])
-    dayfirst = _decide_dayfirst_from_probe(
-        first_str, probe_reference_timestamp)
+    dayfirst = _decide_dayfirst_from_probe(first_str, probe_reference_timestamp)
 
     # Pick master rate (prefer Pressure > Temp > Activity)
     if "Pressure" in sample_rates:
@@ -334,11 +332,11 @@ def align_and_clean_datetime(
             anchor_col = candidate
             break
     else:
-        raise ValueError(
-            "No usable signal found (Pressure/Temp/Activity missing).")
+        raise ValueError("No usable signal found (Pressure/Temp/Activity missing).")
 
-    numerical_data = numerical_data.drop_duplicates(
-        subset="DateTime").reset_index(drop=True)
+    numerical_data = numerical_data.drop_duplicates(subset="DateTime").reset_index(
+        drop=True
+    )
 
     first_valid_index = numerical_data[anchor_col].first_valid_index()
     if first_valid_index is None:
@@ -346,9 +344,11 @@ def align_and_clean_datetime(
 
     # Explicit conversion for Pylance
     first_valid_time = pd.to_datetime(
-        numerical_data.at[first_valid_index, "DateTime"]).to_pydatetime()
+        numerical_data.at[first_valid_index, "DateTime"]
+    ).to_pydatetime()
     last_valid_time = pd.to_datetime(
-        numerical_data["DateTime"].iloc[-1]).to_pydatetime()
+        numerical_data["DateTime"].iloc[-1]
+    ).to_pydatetime()
 
     # Sanity check for reference timestamp
     if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
@@ -359,10 +359,10 @@ def align_and_clean_datetime(
 
     new_reference_timestamp: datetime = first_valid_time
     removed_nan_time_diff = (
-        first_valid_time - probe_reference_timestamp).total_seconds()
+        first_valid_time - probe_reference_timestamp
+    ).total_seconds()
 
-    numerical_data = numerical_data.loc[first_valid_index:].reset_index(
-        drop=True)
+    numerical_data = numerical_data.loc[first_valid_index:].reset_index(drop=True)
 
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
 
@@ -376,22 +376,33 @@ def preprocess_pressure_data(
     pressure_data = pressure_data.copy()
 
     # Interpolate missing values
-    pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(
-        method="linear")
+    pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(method="linear")
 
     # Drop trailing NaNs if any
     last_valid_index = pressure_data["Pressure"].last_valid_index()
     log_info(f"Last valid index (non-NaN in Pressure): {last_valid_index}")
     pressure_data = pressure_data.loc[:last_valid_index]
 
-    # Detrend
-    detrended = detrend(
-        pressure_data["Pressure"].to_numpy(dtype="float64"),
-        type="linear",
+    raw_pressure = pressure_data["Pressure"].to_numpy(dtype="float64")
+
+    # # Detrend
+    # detrended = detrend(
+    #     pressure_data["Pressure"].to_numpy(dtype="float64"),
+    #     type="linear",
+    # )
+
+    # High-pass at 0.02 Hz for drift removal
+    highpassed = butter_highpass_filter(
+        raw_pressure, fs=pressure_sample_rate, cutoff_hz=0.02
     )
 
+    # Store high-passed signal for later PSD
+    pressure_data["PressureHighpass"] = highpassed
+
     # Butterworth low-pass filter
-    filtered = butter_lowpass_filter(detrended, cutoff_hz=10, fs=500)
+    filtered = butter_lowpass_filter(
+        raw_pressure, cutoff_hz=10, fs=pressure_sample_rate
+    )
 
     # Ensure window is odd and fits signal length
     window = min(35, len(filtered) - 1)
@@ -423,8 +434,7 @@ def adjust_behaviours(
             adjusted_end_time = end_time + total_time_diff
             if adjusted_start_time >= 0 and adjusted_end_time >= 0:
                 adjusted_instances.append(
-                    (instance_number, adjusted_start_time,
-                     adjusted_end_time, duration)
+                    (instance_number, adjusted_start_time, adjusted_end_time, duration)
                 )
             else:
                 log_info(

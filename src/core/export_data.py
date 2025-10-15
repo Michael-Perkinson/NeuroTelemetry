@@ -98,13 +98,14 @@ def build_export_data(
                 binned_df.insert(0, "Window", window_key)
                 per_bin_rows.append(binned_df)
             else:
-                # Placeholder row for too-short or empty periods
-                placeholder = pd.DataFrame([{
-                    "Window": window_key,
-                    "Period": period_name,
-                    "Note": "Not enough time for binning"
-                }])
-                per_bin_rows.append(placeholder)
+                continue
+                # # Placeholder row for too-short or empty periods
+                # placeholder = pd.DataFrame([{
+                #     "Window": window_key,
+                #     "Period": period_name,
+                #     "Note": "Not enough time for binning"
+                # }])
+                # per_bin_rows.append(placeholder)
 
             # Summary data
             period_summary = period_data.get("Summary", {})
@@ -120,6 +121,7 @@ def build_export_data(
     per_window_df = pd.DataFrame(per_window_rows)
 
     return per_bin_df, per_period_df, per_window_df
+
 
 def export_data_to_excel(
     summary_data: list[dict], all_metrics: dict, data_file_path: str
