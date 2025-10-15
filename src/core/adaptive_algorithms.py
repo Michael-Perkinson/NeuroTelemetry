@@ -1,3 +1,5 @@
+from scipy.signal import butter, filtfilt
+from typing import cast
 import math
 
 import numpy as np
@@ -16,25 +18,38 @@ def calculate_dynamic_bins(
     return min(array_length, bins)
 
 
-def butter_lowpass_filter(data: np.ndarray, cutoff_hz: float, fs: float,
-                          order: int = 3) -> np.ndarray:
+def butter_lowpass_filter(
+    data: np.ndarray,
+    cutoff_hz: float,
+    fs: float,
+    order: int = 3,
+) -> np.ndarray:
     """Apply a low-pass Butterworth filter to 1D data."""
     nyquist = 0.5 * fs
     normal_cutoff = cutoff_hz / nyquist
-    b, a = butter(order, normal_cutoff, btype="low",
-                  analog=False)  # type: ignore
-    return filtfilt(b, a, data)
+
+    # butter() returns tuple[ndarray, ndarray], but type hints are incomplete
+    b, a = cast(tuple[np.ndarray, np.ndarray], butter(
+        order, normal_cutoff, btype="low", analog=False))
+
+    # filtfilt() returns an ndarray but is typed as Any
+    filtered = cast(np.ndarray, filtfilt(b, a, data))
+
+    return filtered
 
 
 def compute_first_derivative(signal: np.ndarray, fs: float) -> np.ndarray:
     """Compute first derivative via Savitzky Golay."""
-    return savgol_filter(
-        signal,
-        window_length=35,
-        polyorder=2,
-        deriv=1,
-        delta=1 / fs,
-        mode="interp",
+    return cast(
+        np.ndarray,
+        savgol_filter(
+            signal,
+            window_length=35,
+            polyorder=2,
+            deriv=1,
+            delta=1 / fs,
+            mode="interp",
+        ),
     )
 
 

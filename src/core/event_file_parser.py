@@ -1,4 +1,3 @@
-import math
 from pathlib import Path
 import pandas as pd
 
@@ -57,3 +56,16 @@ def select_time_windows(
         and dur >= MIN_DURATION
     ]
     return [(start, end) for _, start, end, _ in filtered]
+
+
+def structure_behaviour_events(
+    event_df: pd.DataFrame,
+) -> dict[str, list[tuple[int, float, float, float]]]:
+    """Convert the dataframe of events into a dictionary grouped by event name."""
+    return {
+        str(event): list(
+            group[["instance", "start", "end", "duration"]
+                  ].itertuples(index=False, name=None)
+        )
+        for event, group in event_df.groupby("event")
+    }
