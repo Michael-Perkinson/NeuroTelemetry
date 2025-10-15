@@ -143,11 +143,21 @@ def prepare_numerical_data(
     all_numerical_data.columns = ["DateTime"] + available_signals
 
     # Get sample rates for the first occurrence of each signal
-    sample_rates = {}
+    sample_rates: dict[str, float] = {}
     for sig in available_signals:
         idx = signal_names[signal_names == sig].index[0]
-        rate_str = cols.loc[idx, 4]
-        sample_rates[sig] = float(rate_str.split(":")[1].strip())
+        rate_raw = cols.loc[idx, 4]
+
+        # Force string type so Pylance stops inferring mixed dtypes
+        rate_str: str = str(rate_raw)
+
+        # Optional sanity check
+        if ":" not in rate_str:
+            raise ValueError(
+                f"Unexpected rate format in metadata: {rate_str!r}")
+
+        parts = rate_str.split(":")
+        sample_rates[sig] = float(parts[1].strip())
 
     # Drop header row
     all_numerical_data = all_numerical_data.iloc[1:].reset_index(drop=True)
@@ -172,7 +182,8 @@ def extract_and_process_data(
         meta_data, all_numerical_data
     )
 
-    numerical_data = parse_numerical_data(all_numerical_data, probe_ref, sample_rates)
+    numerical_data = parse_numerical_data(
+        all_numerical_data, probe_ref, sample_rates)
 
     numerical_data, new_ref, removed_nan_offset = align_and_clean_datetime(
         numerical_data, probe_ref
@@ -182,21 +193,24 @@ def extract_and_process_data(
     alignment_offset, total_offset = compute_time_offsets(
         align_ref, probe_ref, removed_nan_offset
     )
-    log_info(f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s")
+    log_info(
+        f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s")
 
     # master timebase
     numerical_data["TimeSinceReference"] = (
-        numerical_data["DateTime"] - new_ref
+        pd.to_datetime(numerical_data["DateTime"]) - pd.Timestamp(new_ref)
     ).dt.total_seconds()
 
     # build once, after finalised timeline
-    processed_data = build_output_frames(numerical_data, sample_rates)
+    processed_data: dict[str, Any] = build_output_frames(
+        numerical_data, sample_rates)
 
     if behaviour_data is not None:
-        processed_data["Behaviours"] = adjust_behaviours(behaviour_data, total_offset)
+        processed_data["Behaviours"] = adjust_behaviours(
+            behaviour_data, total_offset)
 
     processed_data["ReferenceTimestamp"] = new_ref
-    
+
     return processed_data
 
 
@@ -217,45 +231,47 @@ def parse_reference_timestamps(
 
 def build_output_frames(numerical_data: pd.DataFrame,
                         sample_rates: dict[str, float]) -> dict[str, pd.DataFrame]:
-    """
-    Properly align pressure, temperature, and activity signals.
-    Temperature and activity are interpolated onto the pressure time base.
-    """
     processed = {}
 
-    # --- Pressure ---
-    if "Pressure" in numerical_data:
-        pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
-        prate = sample_rates["Pressure"]
-        processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
-    else:
+    if "Pressure" not in numerical_data:
         raise ValueError("Pressure channel missing; cannot build timeline.")
+
+    pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
+    prate = sample_rates["Pressure"]
+    processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
 
     time_axis = processed["Pressure"]["TimeSinceReference"]
 
-    # --- Temperature ---
-    if "Temp" in numerical_data:
-        temp_df = numerical_data[[
-            "TimeSinceReference", "Temp"]].dropna().copy()
-        interp_temp = np.interp(
-            time_axis, temp_df["TimeSinceReference"], temp_df["Temp"]
-        )
-        processed["Temp"] = pd.DataFrame(
-            {"TimeSinceReference": time_axis, "Temp": interp_temp}
-        )
-
-    # --- Activity ---
-    if "Activity" in numerical_data:
-        act_df = numerical_data[[
-            "TimeSinceReference", "Activity"]].dropna().copy()
-        interp_act = np.interp(
-            time_axis, act_df["TimeSinceReference"], act_df["Activity"]
-        )
-        processed["Activity"] = pd.DataFrame(
-            {"TimeSinceReference": time_axis, "Activity": interp_act}
-        )
+    for sig in ["Temp", "Activity"]:
+        if sig in numerical_data:
+            processed[sig] = safe_interpolate(numerical_data, time_axis, sig)
 
     return processed
+
+
+def safe_interpolate(
+    source_df: pd.DataFrame,
+    time_axis: pd.Series,
+    signal_name: str,
+) -> pd.DataFrame:
+    """
+    Interpolates a given signal DataFrame onto a common time axis.
+    Returns a DataFrame with TimeSinceReference and the interpolated signal.
+    """
+    if source_df.empty or signal_name not in source_df.columns:
+        return pd.DataFrame(columns=["TimeSinceReference", signal_name])
+
+    clean_df = source_df[["TimeSinceReference", signal_name]].dropna().copy()
+    if clean_df.empty:
+        return pd.DataFrame(columns=["TimeSinceReference", signal_name])
+
+    interp_vals = np.interp(
+        time_axis,
+        clean_df["TimeSinceReference"],
+        clean_df[signal_name],
+    )
+    return pd.DataFrame({"TimeSinceReference": time_axis, signal_name: interp_vals})
+
 
 def parse_numerical_data(
     all_numerical_data: pd.DataFrame,
@@ -270,11 +286,13 @@ def parse_numerical_data(
     # Convert numeric columns (skip DateTime)
     for col in numerical_data.columns:
         if col != "DateTime":
-            numerical_data[col] = pd.to_numeric(numerical_data[col], errors="coerce")
+            numerical_data[col] = pd.to_numeric(
+                numerical_data[col], errors="coerce")
 
     # Decide date parsing order
     first_str = str(numerical_data["DateTime"].iloc[0])
-    dayfirst = _decide_dayfirst_from_probe(first_str, probe_reference_timestamp)
+    dayfirst = _decide_dayfirst_from_probe(
+        first_str, probe_reference_timestamp)
 
     # Pick master rate (prefer Pressure > Temp > Activity)
     if "Pressure" in sample_rates:
@@ -310,43 +328,41 @@ def align_and_clean_datetime(
     and the offset in seconds relative to the original probe reference.
     """
 
-    # pick anchor column
+    # Pick anchor column
     for candidate in ["Pressure", "Temp", "Activity"]:
         if candidate in numerical_data.columns:
             anchor_col = candidate
             break
     else:
-        raise ValueError("No usable signal found (Pressure/Temp/Activity missing).")
+        raise ValueError(
+            "No usable signal found (Pressure/Temp/Activity missing).")
 
-    # remove duplicate timestamps
-    numerical_data = numerical_data.drop_duplicates(subset="DateTime").reset_index(
-        drop=True
-    )
+    numerical_data = numerical_data.drop_duplicates(
+        subset="DateTime").reset_index(drop=True)
 
-    # find first valid entry
     first_valid_index = numerical_data[anchor_col].first_valid_index()
     if first_valid_index is None:
         raise ValueError(f"No valid {anchor_col} data found.")
 
-    first_valid_time = numerical_data.at[first_valid_index, "DateTime"]
-    last_valid_time = numerical_data["DateTime"].iloc[-1]
+    # Explicit conversion for Pylance
+    first_valid_time = pd.to_datetime(
+        numerical_data.at[first_valid_index, "DateTime"]).to_pydatetime()
+    last_valid_time = pd.to_datetime(
+        numerical_data["DateTime"].iloc[-1]).to_pydatetime()
 
-    # --- sanity check for reference timestamp ---
+    # Sanity check for reference timestamp
     if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
         raise ValueError(
             f"Reference timestamp {probe_reference_timestamp} not within "
             f"data range ({first_valid_time} → {last_valid_time})."
         )
 
-    # new reference = first valid time
-    new_reference_timestamp = first_valid_time
+    new_reference_timestamp: datetime = first_valid_time
     removed_nan_time_diff = (
-        first_valid_time - probe_reference_timestamp
-    ).total_seconds()
+        first_valid_time - probe_reference_timestamp).total_seconds()
 
-    # trim rows before first valid entry
-    numerical_data = numerical_data.loc[first_valid_index:].reset_index(drop=True)
-
+    numerical_data = numerical_data.loc[first_valid_index:].reset_index(
+        drop=True)
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
 
 
@@ -359,7 +375,8 @@ def preprocess_pressure_data(
     pressure_data = pressure_data.copy()
 
     # Interpolate missing values
-    pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(method="linear")
+    pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(
+        method="linear")
 
     # Drop trailing NaNs if any
     last_valid_index = pressure_data["Pressure"].last_valid_index()
@@ -405,7 +422,8 @@ def adjust_behaviours(
             adjusted_end_time = end_time + total_time_diff
             if adjusted_start_time >= 0 and adjusted_end_time >= 0:
                 adjusted_instances.append(
-                    (instance_number, adjusted_start_time, adjusted_end_time, duration)
+                    (instance_number, adjusted_start_time,
+                     adjusted_end_time, duration)
                 )
             else:
                 log_info(
