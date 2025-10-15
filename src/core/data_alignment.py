@@ -346,9 +346,9 @@ def align_and_clean_datetime(
 
     # Explicit conversion for Pylance
     first_valid_time = pd.to_datetime(
-        numerical_data.at[first_valid_index, "DateTime"]).to_pydatetime()
+        str(numerical_data.at[first_valid_index, "DateTime"])).to_pydatetime()
     last_valid_time = pd.to_datetime(
-        numerical_data["DateTime"].iloc[-1]).to_pydatetime()
+        str(numerical_data["DateTime"].iloc[-1])).to_pydatetime()
 
     # Sanity check for reference timestamp
     if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
@@ -363,6 +363,7 @@ def align_and_clean_datetime(
 
     numerical_data = numerical_data.loc[first_valid_index:].reset_index(
         drop=True)
+    
     return numerical_data, new_reference_timestamp, removed_nan_time_diff
 
 
