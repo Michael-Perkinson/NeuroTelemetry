@@ -1,5 +1,6 @@
 import os
 from collections.abc import Sequence
+from typing import cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -377,4 +378,4 @@ def filter_times_to_range(
     """Return only time values within [start, end]."""
     times_array = np.asarray(times, dtype=np.float64)
     filtered = times_array[(times_array >= start) & (times_array <= end)]
-    return filtered.tolist()
+    return cast(list[float], filtered.tolist())

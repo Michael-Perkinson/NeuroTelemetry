@@ -1,6 +1,4 @@
-import math
 from pathlib import Path
-
 import pandas as pd
 
 REQUIRED_COLUMNS = {
@@ -16,8 +14,6 @@ MIN_DURATION = 30  # seconds
 def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
     """Read and standardize a behavior event CSV (case-insensitive)."""
     df = pd.read_csv(event_file_path)
-
-    # Lowercase and strip whitespace from all columns
     df.columns = [col.strip().lower() for col in df.columns]
 
     column_map = {}
@@ -25,7 +21,8 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
         match_str_lower = match_str.lower()
         matches = [col for col in df.columns if match_str_lower in col]
         if not matches:
-            raise ValueError(f"Missing column with '{match_str}' (case-insensitive)")
+            raise ValueError(
+                f"Missing column with '{match_str}' (case-insensitive)")
         column_map[key] = matches[0]
 
     df["event"] = df[column_map["event"]]
@@ -33,30 +30,42 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
     df["start"] = df[column_map["start"]]
     df["end"] = df[column_map["stop"]]
     df["duration"] = df[column_map["duration"]]
+    df = df.sort_values(["event", "instance"]).reset_index(drop=True)
 
     return df[["event", "instance", "start", "end", "duration"]]
 
 
 def select_time_windows(
-    behaviour_to_plot: str, behaviour_data: dict, reference_timestamp: pd.Timestamp
+    behaviour_to_plot: str,
+    behaviour_data: dict[str, list[tuple[int, float, float, float]]],
+    reference_timestamp: pd.Timestamp,
 ) -> list[tuple[float, float]]:
     """Filter and extract time windows for a specific behavior."""
-
-    cutoff_seconds = (reference_timestamp + pd.Timedelta(minutes=90)).timestamp()
-
+    cutoff_seconds = (reference_timestamp +
+                      pd.Timedelta(minutes=90)).timestamp()
     if behaviour_to_plot not in behaviour_data:
         return []
 
     behaviour_list = behaviour_data[behaviour_to_plot]
-
     filtered = [
         (inst, start, end, dur)
         for inst, start, end, dur in behaviour_list
         if start <= cutoff_seconds
         and end <= cutoff_seconds
-        and isinstance(dur, (float | int))
-        and not math.isnan(dur)
+        and pd.notna(dur)
         and dur >= MIN_DURATION
     ]
-
     return [(start, end) for _, start, end, _ in filtered]
+
+
+def structure_behaviour_events(
+    event_df: pd.DataFrame,
+) -> dict[str, list[tuple[int, float, float, float]]]:
+    """Convert the dataframe of events into a dictionary grouped by event name."""
+    return {
+        str(event): list(
+            group[["instance", "start", "end", "duration"]
+                  ].itertuples(index=False, name=None)
+        )
+        for event, group in event_df.groupby("event")
+    }

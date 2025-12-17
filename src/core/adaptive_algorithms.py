@@ -1,4 +1,5 @@
 import math
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -16,23 +17,62 @@ def calculate_dynamic_bins(
     return min(array_length, bins)
 
 
-def butter_lowpass_filter(data, cutoff_hz, fs, order=3):
+def butter_lowpass_filter(
+    data: np.ndarray,
+    cutoff_hz: float,
+    fs: float,
+    order: int = 3,
+) -> np.ndarray:
     """Apply a low-pass Butterworth filter to 1D data."""
     nyquist = 0.5 * fs
     normal_cutoff = cutoff_hz / nyquist
-    b, a = butter(order, normal_cutoff, btype="low", analog=False)  # type: ignore
-    return filtfilt(b, a, data)
+
+    # butter() returns tuple[ndarray, ndarray], but type hints are incomplete
+    b, a = cast(
+        tuple[np.ndarray, np.ndarray],
+        butter(order, normal_cutoff, btype="low", analog=False),
+    )
+
+    # filtfilt() returns an ndarray but is typed as Any
+    filtered = cast(np.ndarray, filtfilt(b, a, data))
+
+    return filtered
 
 
-def compute_first_derivative(signal, fs):
-    """Compute first derivative via Savitzky–Golay."""
-    return savgol_filter(
-        signal,
-        window_length=35,
-        polyorder=2,
-        deriv=1,
-        delta=1 / fs,
-        mode="interp",
+def butter_highpass_filter(
+    data: np.ndarray,
+    fs: float,
+    cutoff_hz: float,
+    order: int = 3,
+) -> np.ndarray:
+    """Apply a high-pass Butterworth filter to 1D data."""
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff_hz / nyquist
+
+    # butter() returns tuple[ndarray, ndarray], but type hints are incomplete
+    b, a = cast(
+        tuple[np.ndarray, np.ndarray],
+        butter(order, normal_cutoff, btype="high", analog=False),
+    )
+
+    # filtfilt() returns an ndarray but is typed as Any
+    filtered = cast(np.ndarray, filtfilt(b, a, data))
+
+    return filtered
+
+
+def compute_first_derivative(signal: np.ndarray, fs: float) -> np.ndarray:
+    """Compute first derivative via Savitzky Golay."""
+    return cast(
+        np.ndarray,
+        savgol_filter(
+            signal,
+            window_length=35,
+            polyorder=2,
+            deriv=1,
+            delta=1 / fs,
+            mode="interp",
+        ),
     )
 
 
@@ -43,6 +83,18 @@ def get_time_bounds(pressure_data: pd.DataFrame) -> tuple[float, float]:
     return min_time, max_time
 
 
+def compute_time_window(
+    photo_min_time: float,
+    photo_max_time: float,
+    injection_sec: float,
+    pre_min: float,
+    post_min: float,
+) -> tuple[float, float]:
+    start_time = injection_sec - pre_min * 60
+    end_time = injection_sec + post_min * 60
+    return max(photo_min_time, start_time), min(photo_max_time, end_time)
+
+
 def get_nearest_points(
     target_times: list[float], df: pd.DataFrame, time_col: str, value_col: str
 ) -> tuple[list[float], list[float]]:
@@ -50,10 +102,10 @@ def get_nearest_points(
     available_times = df[time_col].values
     values = df[value_col].values
 
-    target_times = np.asarray(target_times)
+    target_arr = np.asarray(target_times)
 
     # Find indices where each target would be inserted to maintain order
-    insert_indices = np.searchsorted(available_times, target_times)
+    insert_indices = np.searchsorted(available_times, target_arr)
 
     # Clip to valid range
     insert_indices = np.clip(insert_indices, 1, len(available_times) - 1)
@@ -62,8 +114,8 @@ def get_nearest_points(
     left_indices = insert_indices - 1
     right_indices = insert_indices
 
-    left_dists = np.abs(available_times[left_indices] - target_times)
-    right_dists = np.abs(available_times[right_indices] - target_times)
+    left_dists = np.abs(available_times[left_indices] - target_arr)
+    right_dists = np.abs(available_times[right_indices] - target_arr)
 
     best_indices = np.where(left_dists <= right_dists, left_indices, right_indices)
 

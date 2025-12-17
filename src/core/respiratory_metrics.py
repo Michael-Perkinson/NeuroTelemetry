@@ -40,10 +40,13 @@ def calculate_binned_period_metrics(
         bin_troughs = trough_times[bin_trough_mask]
 
         bin_temp = temp_data[
-            (temp_data.index >= bin_start) & (temp_data.index < bin_end)
+            (temp_data["TimeSinceReference"] >= bin_start) &
+            (temp_data["TimeSinceReference"] < bin_end)
         ]
+
         bin_activity = activity_data[
-            (activity_data.index >= bin_start) & (activity_data.index < bin_end)
+            (activity_data["TimeSinceReference"] >= bin_start) &
+            (activity_data["TimeSinceReference"] < bin_end)
         ]
 
         if len(bin_peaks) < 2 or len(bin_troughs) < 2:

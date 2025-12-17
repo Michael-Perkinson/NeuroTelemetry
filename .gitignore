@@ -1,5 +1,6 @@
 # Ignore large or unnecessary folders
 data/
+local/
 old_versions/
 extracted_data/
 behaviour_images/
@@ -44,3 +45,5 @@ venv/
 new_data_alignment.py
 .mypy_cache/
 .ruff_cache/
+detected_peaks.json
+tests/test_pressure_pipeline.py

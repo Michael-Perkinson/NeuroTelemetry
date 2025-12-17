@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -29,12 +30,22 @@ def read_and_process_photometry_file(photometry_file_path: Path) -> pd.DataFrame
 
     clean_df = df[keep_cols].dropna().reset_index(drop=True)
 
+    if clean_df.empty:
+        raise ValueError(f"No valid data found in {photometry_file_path.name}.")
+
     return clean_df
 
 
 def detect_skip_rows(data: pd.DataFrame) -> int:
     """Detect the index of the first row containing actual telemetry data."""
     for i, line in enumerate(data.iloc[:, 0]):
-        if str(line).strip().startswith("Time"):
+        if isinstance(line, str) and line.strip().lower().startswith("time"):
             return i
     return 0
+
+
+def safe_get_df(data: dict[str, Any], key: str) -> pd.DataFrame:
+    df = data.get(key)
+    if key == "Pressure" and df is None:
+        raise ValueError("Pressure data is required but not found in processed data.")
+    return df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()

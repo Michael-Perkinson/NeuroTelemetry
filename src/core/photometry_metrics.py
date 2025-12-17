@@ -2,8 +2,21 @@ import numpy as np
 import pandas as pd
 
 
+def trim_to_window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame | None:
+    """Return subset of dataframe between time window or None if df is None."""
+    if df is None:
+        return None
+    return df.query("@start <= TimeSinceReference <= @end")
+
+def make_bin_edges(pre_min: int, post_min: int, bin_min: int) -> np.ndarray:
+    """Return bin edges in seconds relative to 0 (injection time)."""
+    bin_size_sec = bin_min * 60
+    bin_start = -pre_min * 60
+    bin_end = post_min * 60
+    return np.arange(bin_start, bin_end + bin_size_sec, bin_size_sec)
+
 def bin_signal(
-    signal_df: pd.DataFrame,
+    signal_df: pd.DataFrame | None,
     bin_edges: np.ndarray,
     signal_col: str,
     injection_sec: float,

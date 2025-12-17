@@ -60,16 +60,35 @@ def find_shoulders(
     return int(start_index + search_start_index + shoulder_offset)
 
 
-def find_peaks_and_shoulders(
-    time: pd.Series, pressure: np.ndarray, dvdt: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[int]]:
+def find_peaks_and_shoulders(time, pressure, dvdt):
     time_win = np.asarray(time.values)
     pressure_win = pressure
     dvdt_win = dvdt
 
-    peaks, _ = find_peaks(-pressure_win, prominence=3, distance=50)
+    fs = 500
 
-    shoulders: list[int] = []
+    peaks, props = find_peaks(-pressure_win, prominence=3, distance=int(0.05 * fs))
+
+    # Adaptive envelope filter
+    win_s = 20  # 20-s window
+    win = max(5, int(win_s * fs))
+    s = pd.Series(pressure_win)
+
+    upper_env = s.rolling(
+        win, center=True, min_periods=1).quantile(0.80).to_numpy()
+    lower_env = s.rolling(
+        win, center=True, min_periods=1).quantile(0.20).to_numpy()
+    local_amp = np.maximum(upper_env - lower_env, 1e-6) # avoid zero
+    # trough depth vs local upper
+    depth = upper_env[peaks] - pressure_win[peaks]
+
+    depth_frac = 0.45  # keep if depth > 45% of local amplitude
+    keep_depth = depth >= (depth_frac * local_amp[peaks])
+
+    peaks = peaks[keep_depth]
+
+    # Shoulders
+    shoulders = []
     for i, pk in enumerate(peaks):
         start = peaks[i - 1] if i > 0 else 0
         dvdt_seg = dvdt_win[start:pk]
@@ -82,7 +101,7 @@ def find_peaks_and_shoulders(
 def analyse_peaks(
     time_windows: list[tuple[float, float]],
     pressure_data: pd.DataFrame,
-) -> list[tuple[float, float, np.ndarray, pd.Series, list[int], pd.Series]]:
+) -> list[tuple[float, float, np.ndarray, pd.Series, np.ndarray, pd.Series]]:
     results = []
 
     for start_time, end_time in time_windows:
@@ -101,14 +120,17 @@ def analyse_peaks(
             time_array, smoothed_array, dvdt_array
         )
 
-        peaks = np.array(peaks)
-        shoulders = np.array(shoulders)
+        # Ensure NumPy arrays
+        peaks = np.asarray(peaks, dtype=int)
+        shoulders = np.asarray(shoulders, dtype=int)
 
+        # Truncate to match lengths if necessary
         if len(peaks) != len(shoulders):
             min_len = min(len(peaks), len(shoulders))
             peaks = peaks[:min_len]
             shoulders = shoulders[:min_len]
 
+        # Extract corresponding timestamps
         peak_times = pressure_data_window["TimeSinceReference"].iloc[peaks]
         shoulder_times = pressure_data_window["TimeSinceReference"].iloc[shoulders]
 

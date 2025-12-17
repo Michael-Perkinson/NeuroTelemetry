@@ -1,10 +1,10 @@
+import json
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from src.core.adaptive_algorithms import get_time_bounds
+from src.core.adaptive_algorithms import compute_time_window, get_time_bounds
 from src.core.data_alignment import extract_and_process_data, prepare_raw_data
 from src.core.data_file_parser import (
     read_and_process_photometry_file,
@@ -18,8 +18,15 @@ from src.core.export_graphs import (
 )
 from src.core.file_handling import create_folders_for_graphs, list_files
 from src.core.logger import log_exception, log_info
-from src.core.photometry_metrics import bin_signal, combine_signal_bins
+from src.core.photometry_metrics import (
+    bin_signal,
+    combine_signal_bins,
+    make_bin_edges,
+    trim_to_window,
+)
 from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
+
+MAIN_SIGNAL = "dFoF_465"
 
 
 def load_photometry_data(
@@ -55,12 +62,12 @@ def run_photometry_pipeline(
     photometry_df: pd.DataFrame,
     photometry_align_time: str,
     injection_sec: int,
-    pre_minutes: int,
-    post_minutes: int,
-    bin_minutes: int,
-    output_path: Path,
+    pre_min: int,
+    post_min: int,
+    bin_min: int,
+    telemetry_path: Path,
     log_callback=None,
-):
+) -> dict | None:
     """Run full analysis pipeline for photometry aligned to injection events."""
 
     def log(msg: str):
@@ -69,12 +76,34 @@ def run_photometry_pipeline(
         else:
             print(msg)
 
-    # Analysis folders
-    file_base = Path(output_path).stem
-    analysis_folder = Path("extracted_data") / f"{file_base}_PhotometryAnalysis"
+    if pre_min <= 0 or post_min <= 0 or bin_min <= 0:
+        raise ValueError("Pre, Post, and Bin durations must all be positive.")
+
+    start_time = datetime.now()
+
+    # ---- Setup analysis folder ----
+    file_base = telemetry_path.stem
+    analysis_folder = (
+        telemetry_path.parent / "extracted_data" / f"{file_base}_PhotometryAnalysis"
+    )
     analysis_folder.mkdir(parents=True, exist_ok=True)
 
-    date_str = datetime.now().strftime("%Y%m%d")
+    date_str = start_time.strftime("%Y%m%d_%H%M%S")
+
+    metadata = {
+        "RunDate": date_str,
+        "PipelineVersion": "1.0.0",
+        "TelemetryFile": str(telemetry_path),
+        "InjectionTime_s": injection_sec,
+        "PreWindow_min": pre_min,
+        "PostWindow_min": post_min,
+        "BinSize_min": bin_min,
+        "AlignTime": photometry_align_time,
+    }
+
+    (analysis_folder / f"analysis_config_{date_str}.json").write_text(
+        json.dumps(metadata, indent=2)
+    )
     excel_filename = f"{file_base}_photometry_{date_str}.xlsx"
 
     log("Processing telemetry...")
@@ -89,10 +118,9 @@ def run_photometry_pipeline(
 
     log("Processing photometry data...")
     photo_min_time, photo_max_time = get_time_bounds(photometry_df)
-    start_time = injection_sec - pre_minutes * 60
-    end_time = injection_sec + post_minutes * 60
-    window_start = max(photo_min_time, start_time)
-    window_end = min(photo_max_time, end_time)
+    window_start, window_end = compute_time_window(
+        photo_min_time, photo_max_time, injection_sec, pre_min, post_min
+    )
 
     photometry_df = photometry_df[
         (photometry_df["TimeSinceReference"] >= window_start)
@@ -100,64 +128,71 @@ def run_photometry_pipeline(
     ].reset_index(drop=True)
 
     if temp_data is not None:
-        temp_data = temp_data.query(
-            "@window_start <= TimeSinceReference <= @window_end"
-        )
+        temp_data = trim_to_window(temp_data, window_start, window_end)
     if activity_data is not None:
-        activity_data = activity_data.query(
-            "@window_start <= TimeSinceReference <= @window_end"
-        )
+        activity_data = trim_to_window(activity_data, window_start, window_end)
 
-    per_peak_df, summary = analyse_photometry_peaks(
-        photometry_df, main_signal_col="dFoF_465"
+    if photometry_df.empty:
+        log("Photometry data is empty after time-window trimming; aborting.")
+        return None
+
+    per_peak_df, peak_times, summary = analyse_photometry_peaks(
+        photometry_df, main_signal_col=MAIN_SIGNAL
     )
 
     df_raw = prepare_raw_data(photometry_df, temp_data, activity_data, injection_sec)
 
     log("Summarizing data...")
-    bin_size_sec = bin_minutes * 60
-
-    # Build bins relative to injection (0 = injection point)
-    bin_start = -pre_minutes * 60
-    bin_end = post_minutes * 60
-    bin_edges = np.arange(bin_start, bin_end + bin_size_sec, bin_size_sec)
-
-    peak_times = per_peak_df["PeakTime"].tolist() if not per_peak_df.empty else []
-
-    photometry_binned = bin_signal(photometry_df, bin_edges, "dFoF_465", injection_sec)
+    bin_edges = make_bin_edges(pre_min, post_min, bin_min)
+    photometry_binned = bin_signal(photometry_df, bin_edges, MAIN_SIGNAL, injection_sec)
     temp_binned = bin_signal(temp_data, bin_edges, "Temp", injection_sec)
     activity_binned = bin_signal(activity_data, bin_edges, "Activity", injection_sec)
     peaks_binned = bin_peaks(per_peak_df, bin_edges, injection_sec)
-
     signal_binned = combine_signal_bins(photometry_binned, temp_binned, activity_binned)
 
     log("Creating output folders...")
     html_folder, svg_folder, full_trace_folder, _ = create_folders_for_graphs(
         analysis_folder
     )
+
     log("Exporting full time-range plot...")
     export_full_time_range_plot(
         photometry_df,
-        temp_data,
-        activity_data,
+        temp_data if temp_data is not None else pd.DataFrame(),
+        activity_data if activity_data is not None else pd.DataFrame(),
         peak_times,
         [],
         window_start,
         window_end,
         "Injection Window",
-        full_trace_folder,
+        str(full_trace_folder),
         file_base,
-        main_signal_col="dFoF_465",
+        main_signal_col=MAIN_SIGNAL,
         main_signal_label="Photometry",
     )
 
-    log("Saving Excel output...")
-    export_binned_data_to_excel(
-        output_folder=analysis_folder,
-        excel_filename=excel_filename,
-        peaks_binned=peaks_binned,
-        signal_binned=signal_binned,
-        df_raw=df_raw,
-    )
+    # ---- Excel ----
+    try:
+        log("Saving Excel output...")
+        export_binned_data_to_excel(
+            output_folder=analysis_folder,
+            excel_filename=excel_filename,
+            peaks_binned=peaks_binned,
+            signal_binned=signal_binned,
+            df_raw=df_raw,
+        )
+    except Exception as e:
+        log(f"Failed to save Excel output: {e}")
+        raise
 
-    log("Photometry analysis complete.")
+    log(f"Total runtime: {(datetime.now() - start_time).total_seconds():.1f}s")
+
+    return {
+        "summary": summary,
+        "per_peak_df": per_peak_df,
+        "signal_binned": signal_binned,
+        "peaks_binned": peaks_binned,
+        "analysis_folder": analysis_folder,
+        "excel_path": analysis_folder / excel_filename,
+        "config_path": analysis_folder / f"analysis_config_{date_str}.json",
+    }
