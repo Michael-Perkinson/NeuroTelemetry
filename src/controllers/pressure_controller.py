@@ -24,6 +24,7 @@ from src.core.period_analysis import (
     compute_respiratory_metrics_for_periods,
     find_valid_periods,
 )
+from src.core.power_spectral_analysis import export_ttot_traces
 
 
 def load_data(
@@ -208,6 +209,12 @@ def run_pressure_pipeline(
 
     log("Saving Excel output...")
     export_data_to_excel(summary_data, all_metrics, str(base_name))
+
+    log("Exporting Ttot breath-by-breath traces...")
+    ttot_export_folder = analysis_folder / "Ttot_Traces"
+    export_ttot_traces(
+        window_periods=window_periods, output_folder=ttot_export_folder, log=log
+    )
 
     log(f"Total runtime: {(datetime.now() - start_time).total_seconds():.1f}s")
 
