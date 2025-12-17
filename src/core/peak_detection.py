@@ -69,14 +69,16 @@ def find_peaks_and_shoulders(time, pressure, dvdt):
 
     peaks, props = find_peaks(-pressure_win, prominence=3, distance=int(0.05 * fs))
 
-    # ---- Adaptive envelope filter (kills those +30 wobble blips) ----
+    # Adaptive envelope filter
     win_s = 20  # 20-s window
     win = max(5, int(win_s * fs))
     s = pd.Series(pressure_win)
 
-    upper_env = s.rolling(win, center=True, min_periods=1).quantile(0.80).to_numpy()
-    lower_env = s.rolling(win, center=True, min_periods=1).quantile(0.20).to_numpy()
-    local_amp = np.maximum(upper_env - lower_env, 1e-6)  # avoid zero
+    upper_env = s.rolling(
+        win, center=True, min_periods=1).quantile(0.80).to_numpy()
+    lower_env = s.rolling(
+        win, center=True, min_periods=1).quantile(0.20).to_numpy()
+    local_amp = np.maximum(upper_env - lower_env, 1e-6) # avoid zero
     # trough depth vs local upper
     depth = upper_env[peaks] - pressure_win[peaks]
 

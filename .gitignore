@@ -1,5 +1,6 @@
 # Ignore large or unnecessary folders
 data/
+local/
 old_versions/
 extracted_data/
 behaviour_images/
