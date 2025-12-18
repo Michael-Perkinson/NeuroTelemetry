@@ -1,49 +1,52 @@
-import sys
-from pathlib import Path
-
 from src.controllers.photometry_controller import (
     load_photometry_data,
     run_photometry_pipeline,
 )
+import sys
+from pathlib import Path
 
+# -------------------------------------------------
+# Ensure project root is on sys.path
+# -------------------------------------------------
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 
-# --- 1. Point to your files ---
-base_path = Path.home() / "code" / "pressure_analysis" / "data" / "Andy" / "VP3"
+# -------------------------------------------------
+# Data paths
+# -------------------------------------------------
+data_root = Path.home() / "data" / "Andys"
 
 photometry_path = (
-    base_path
-    / "Analysed Photometry"
-    / ("2025-07-16 VP3 MET DIESTRUS SALINE_Data OPTION 2 INC.csv")
+    data_root
+    / "2025-07-16 VP3 MET DIESTRUS SALINE_Data OPTION 2 INC.csv"
 )
 
 telemetry_path = (
-    base_path
-    / "Telemetry"
-    / "ascii analysed"
-    / ("2025-07-16 VP3 Saline TEMP and ACT ascii.csv")
+    data_root
+    / "2025-07-16 VP3 Saline TEMP and ACT ascii.csv"
 )
 
-# --- 2. Load with your wrapper (does pre-processing + sanity checks) ---
-photometry_df, telemetry_df = load_photometry_data(photometry_path, telemetry_path)
+# -------------------------------------------------
+# Load data
+# -------------------------------------------------
+photometry_df, telemetry_df = load_photometry_data(
+    photometry_path, telemetry_path
+)
 
-photometry_align_time = "16/07/2025 11:08:00 AM"
-injection_sec = 2820
-pre_minutes = 30
-post_minutes = 360
-bin_minutes = 30
-base_path = Path.home() / "code" / "pressure_analysis"
-output_path = base_path / "test_outputs" / "photometry"
+# -------------------------------------------------
+# Run pipeline
+# -------------------------------------------------
+repo_root = Path.home() / "code" / "pressure_analysis"
+output_path = repo_root / "test_outputs" / "photometry"
 
 run_photometry_pipeline(
     telemetry_df=telemetry_df,
     photometry_df=photometry_df,
-    photometry_align_time=photometry_align_time,
-    injection_sec=injection_sec,
-    pre_min=pre_minutes,
-    post_min=post_minutes,
-    bin_min=bin_minutes,
+    photometry_align_time="16/07/2025 11:08:00 AM",
+    injection_sec=2820,
+    pre_min=30,
+    post_min=360,
+    bin_min=30,
     telemetry_path=output_path,
     log_callback=print,
 )

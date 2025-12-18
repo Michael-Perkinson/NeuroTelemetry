@@ -47,3 +47,5 @@ new_data_alignment.py
 .ruff_cache/
 detected_peaks.json
 tests/test_pressure_pipeline.py
+test_main.py
+tests/test_photometry_pipeline.py
