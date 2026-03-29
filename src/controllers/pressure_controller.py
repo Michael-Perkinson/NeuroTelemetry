@@ -25,6 +25,10 @@ from src.core.period_analysis import (
     find_valid_periods,
 )
 from src.core.power_spectral_analysis import export_ttot_traces
+from src.core.respiratory_metrics import (
+    compute_atm_pressure_session_summary,
+    compute_atm_pressure_time_bins,
+)
 
 
 def load_data(
@@ -65,6 +69,8 @@ def run_pressure_pipeline(
     video_time: str,
     bin_size_sec: int,
     output_path: Path,
+    atm_bin_size_sec: int = 300,
+    export_atm_summary: bool = True,
     log_callback=None,
 ) -> dict | None:
     """Run full analysis pipeline for pressure telemetry aligned to behaviors."""
@@ -90,9 +96,13 @@ def run_pressure_pipeline(
         "ProbeTime": probe_time,
         "VideoTime": video_time,
         "BinSize_s": bin_size_sec,
+        "AtmPressureBinSize_s": atm_bin_size_sec,
+        "ExportAtmPressureSummary": export_atm_summary,
     }
 
-    (analysis_folder / f"analysis_config_{date_str}.json").write_text(
+    logs_folder = analysis_folder / "logs"
+    logs_folder.mkdir(parents=True, exist_ok=True)
+    (logs_folder / f"analysis_config_{date_str}.json").write_text(
         json.dumps(metadata, indent=2)
     )
 
@@ -110,6 +120,9 @@ def run_pressure_pipeline(
     pressure_data = safe_get_df(processed_data, "Pressure")
     temp_data = safe_get_df(processed_data, "Temp")
     activity_data = safe_get_df(processed_data, "Activity")
+    atm_pressure_data = safe_get_df(processed_data, "AtmPressure")
+    n_atm = len(atm_pressure_data)
+    log(f"AtmPressure data: {n_atm} rows, empty={atm_pressure_data.empty}")
 
     new_reference_timestamp = processed_data["ReferenceTimestamp"]
 
@@ -164,6 +177,20 @@ def run_pressure_pipeline(
         bin_size_sec,
     )
 
+    atm_overall_df = None
+    atm_binned_df = None
+    if export_atm_summary:
+        log("Computing atmospheric pressure session summary...")
+        atm_overall_df = compute_atm_pressure_session_summary(
+            atm_pressure_data=atm_pressure_data,
+        )
+        atm_binned_df = compute_atm_pressure_time_bins(
+            pressure_data=pressure_data,
+            atm_pressure_data=atm_pressure_data,
+            bin_size_sec=atm_bin_size_sec,
+        )
+        log(f"Atm overall: {atm_overall_df.shape}, binned: {atm_binned_df.shape}")
+
     min_time, max_time = get_time_bounds(pressure_data)
 
     summary_data = create_summary_data(
@@ -189,6 +216,8 @@ def run_pressure_pipeline(
         base_name,
         main_signal_col="SmoothedPressure",
         main_signal_label="Pressure",
+        atm_pressure_data=atm_pressure_data,
+        behavior_windows=time_windows,
     )
 
     log("Exporting per-behavior plots...")
@@ -208,7 +237,9 @@ def run_pressure_pipeline(
     )
 
     log("Saving Excel output...")
-    export_data_to_excel(summary_data, all_metrics, str(base_name))
+    export_data_to_excel(summary_data, all_metrics, analysis_folder,
+                         session_overall_df=atm_overall_df,
+                         session_binned_df=atm_binned_df)
 
     log("Exporting Ttot breath-by-breath traces...")
     ttot_export_folder = analysis_folder / "Ttot_Traces"

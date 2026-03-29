@@ -381,3 +381,69 @@ def summarize_respiratory_cycles(
     )
 
     return result
+
+
+def compute_atm_pressure_session_summary(
+    atm_pressure_data: pd.DataFrame,
+) -> pd.DataFrame:
+    """Single-row overall atmospheric pressure stats (mean/SD/min/max) for the full recording."""
+    if atm_pressure_data.empty or "AtmPressure" not in atm_pressure_data.columns:
+        return pd.DataFrame(columns=["Mean", "SD", "Min", "Max"])
+    vals = atm_pressure_data["AtmPressure"].dropna()
+    row: dict[str, Any] = {
+        "Mean": float(vals.mean()),
+        "SD": float(vals.std()),
+        "Min": float(vals.min()),
+        "Max": float(vals.max()),
+    }
+    return pd.DataFrame([row])
+
+
+def compute_atm_pressure_time_bins(
+    pressure_data: pd.DataFrame,
+    atm_pressure_data: pd.DataFrame,
+    bin_size_sec: int,
+) -> pd.DataFrame:
+    """
+    Bin atmospheric pressure from start to end of recording, producing
+    mean/SD/min/max/N per bin. Uses pressure_data only for the time axis.
+    """
+    min_time = pressure_data["TimeSinceReference"].min()
+    max_time = pressure_data["TimeSinceReference"].max()
+
+    bin_edges = np.arange(min_time, max_time + bin_size_sec, bin_size_sec)
+    rows: list[dict[str, Any]] = []
+
+    for i in range(len(bin_edges) - 1):
+        bin_start = float(bin_edges[i])
+        bin_end = float(bin_edges[i + 1])
+
+        if atm_pressure_data.empty or "AtmPressure" not in atm_pressure_data.columns:
+            rows.append({
+                "Bin_Start_s": bin_start, "Bin_End_s": bin_end,
+                "Mean": np.nan, "SD": np.nan, "Min": np.nan, "Max": np.nan, "N": 0,
+            })
+            continue
+
+        mask = (
+            (atm_pressure_data["TimeSinceReference"] >= bin_start) &
+            (atm_pressure_data["TimeSinceReference"] < bin_end)
+        )
+        vals = atm_pressure_data.loc[mask, "AtmPressure"].dropna()
+        if vals.empty:
+            rows.append({
+                "Bin_Start_s": bin_start, "Bin_End_s": bin_end,
+                "Mean": np.nan, "SD": np.nan, "Min": np.nan, "Max": np.nan, "N": 0,
+            })
+        else:
+            rows.append({
+                "Bin_Start_s": bin_start,
+                "Bin_End_s": bin_end,
+                "Mean": float(vals.mean()),
+                "SD": float(vals.std()),
+                "Min": float(vals.min()),
+                "Max": float(vals.max()),
+                "N": int(vals.count()),
+            })
+
+    return pd.DataFrame(rows)

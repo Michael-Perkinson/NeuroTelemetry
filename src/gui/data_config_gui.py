@@ -5,14 +5,16 @@ from pathlib import Path
 from datetime import datetime
 
 
-from PySide6.QtCore import QDateTime, Qt
+from PySide6.QtCore import QDateTime, QSettings, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDateTimeEdit,
     QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
@@ -42,8 +44,23 @@ class DataConfigGUI(QWidget):
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
 
-        # Input files
-        self.add_global_section_title("Input Files")
+        # Input Files title row with discreet settings menu tucked on the right
+        self._settings_menu = QMenu(self)
+        self._settings_menu.addAction("Reset Saved Settings", self.clear_settings)
+        menu_btn = QPushButton("···")
+        menu_btn.setFixedSize(20, 14)
+        menu_btn.setStyleSheet(
+            "color: #999; font-size: 9pt; border: none; background: transparent;"
+        )
+        menu_btn.setMenu(self._settings_menu)
+        input_header = QHBoxLayout()
+        input_header.setContentsMargins(20, 15, 4, 5)
+        input_title = QLabel("Input Files")
+        input_title.setStyleSheet("font-weight: bold; font-size: 14pt;")
+        input_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        input_header.addWidget(menu_btn)
+        input_header.addWidget(input_title)
+        self.main_layout.addLayout(input_header)
         self.telemetry_path = self.create_file_selector("Telemetry Data File")
         self.secondary_path = self.create_file_selector(
             "Behaviour or Photometry File")
@@ -75,6 +92,8 @@ class DataConfigGUI(QWidget):
 
         # React to file selection / typing
         self.secondary_path.textChanged.connect(self.on_secondary_file_changed)
+
+        self.restore_settings()
 
     # -------------------- UI Builders --------------------
 
@@ -172,11 +191,24 @@ class DataConfigGUI(QWidget):
         grid.addWidget(beh_lbl, 3, 0)
         grid.addWidget(self.behaviour_input, 3, 1)
 
-        # Bin size
-        bin_lbl = QLabel("Bin Size (s)")
+        # Respiratory bin size
+        bin_lbl = QLabel("Respiratory Bin Size (s)")
         self.bin_size = self.create_spin_box(10)
         grid.addWidget(bin_lbl, 4, 0)
         grid.addWidget(self.bin_size, 4, 1)
+
+        # Atm. pressure summary export toggle (appears before its bin size)
+        self.export_atm_summary = QCheckBox("Export Atmospheric Pressure Session Summary")
+        self.export_atm_summary.setChecked(True)
+        grid.addWidget(self.export_atm_summary, 5, 0, 1, 2)
+
+        # Atm. pressure bin size (hidden when checkbox is unchecked)
+        self.atm_bin_lbl = QLabel("Atm. Pressure Bin Size (s)")
+        self.atm_bin_size = self.create_spin_box(300)
+        grid.addWidget(self.atm_bin_lbl, 6, 0)
+        grid.addWidget(self.atm_bin_size, 6, 1)
+
+        self.export_atm_summary.toggled.connect(self._toggle_atm_bin_visibility)
 
         return panel
 
@@ -228,6 +260,41 @@ class DataConfigGUI(QWidget):
 
     # -------------------- Helpers --------------------
 
+    def _toggle_atm_bin_visibility(self, checked: bool):
+        self.atm_bin_lbl.setVisible(checked)
+        self.atm_bin_size.setVisible(checked)
+
+    def clear_settings(self):
+        QSettings("NeuroTelemetry", "DataConfigGUI").clear()
+        self.log("Saved settings cleared.")
+
+    def save_settings(self):
+        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        s.setValue("behaviour_input", self.behaviour_input.text())
+        s.setValue("bin_size", self.bin_size.value())
+        s.setValue("atm_bin_size", self.atm_bin_size.value())
+        s.setValue("export_atm_summary", self.export_atm_summary.isChecked())
+        s.setValue("injection_sec", self.injection_sec.value())
+        s.setValue("photo_pre_min", self.photo_pre_min.value())
+        s.setValue("photo_post_min", self.photo_post_min.value())
+        s.setValue("photo_bin_min", self.photo_bin_min.value())
+
+    def restore_settings(self):
+        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        self.behaviour_input.setText(s.value("behaviour_input", "Time spent sleeping"))
+        self.bin_size.setValue(int(s.value("bin_size", 10)))
+        self.atm_bin_size.setValue(int(s.value("atm_bin_size", 300)))
+        checked = s.value("export_atm_summary", True, type=bool)
+        self.export_atm_summary.setChecked(checked)
+        self.injection_sec.setValue(int(s.value("injection_sec", 0)))
+        self.photo_pre_min.setValue(int(s.value("photo_pre_min", 30)))
+        self.photo_post_min.setValue(int(s.value("photo_post_min", 360)))
+        self.photo_bin_min.setValue(int(s.value("photo_bin_min", 30)))
+
+    def closeEvent(self, event):
+        self.save_settings()
+        super().closeEvent(event)
+
     def make_datetime_edit(self):
         dt = QDateTimeEdit()
         dt.setDisplayFormat("dd/MM/yyyy hh:mm:ss AP")
@@ -236,12 +303,16 @@ class DataConfigGUI(QWidget):
         return dt
 
     def select_file(self, target_entry):
+        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        last_dir = s.value("last_directory", "")
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select File",
+            dir=last_dir,
             filter="CSV and ASCII Files (*.csv *.ascii *.txt);;All Files (*)",
         )
         if path:
+            s.setValue("last_directory", str(Path(path).parent))
             target_entry.setText(path)
             if target_entry is self.secondary_path:
                 self.on_secondary_file_changed()
@@ -283,6 +354,7 @@ class DataConfigGUI(QWidget):
     # -------------------- Analysis --------------------
 
     def run_analysis(self):
+        self.save_settings()
         self.run_button.setEnabled(False)
         try:
             telemetry_path = Path(self.telemetry_path.text())
@@ -333,6 +405,8 @@ class DataConfigGUI(QWidget):
                     ),
                     bin_size_sec=self.bin_size.value(),
                     output_path=telemetry_path,
+                    atm_bin_size_sec=self.atm_bin_size.value(),
+                    export_atm_summary=self.export_atm_summary.isChecked(),
                     log_callback=self.log,
                 )
 

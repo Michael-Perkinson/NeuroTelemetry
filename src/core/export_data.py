@@ -124,9 +124,11 @@ def build_export_data(
 
 
 def export_data_to_excel(
-    summary_data: list[dict], all_metrics: dict, data_file_path: str
+    summary_data: list[dict], all_metrics: dict, analysis_folder: Path,
+    session_overall_df: pd.DataFrame | None = None,
+    session_binned_df: pd.DataFrame | None = None,
 ) -> None:
-    """Export data to Excel with 5 structured sheets."""
+    """Export data to Excel into the shared analysis folder alongside the graphs."""
     try:
         summary_df = pd.DataFrame(summary_data)
         global_summary = all_metrics.get("GlobalSummary", {})
@@ -136,17 +138,28 @@ def export_data_to_excel(
 
         per_bin_df, per_period_df, per_window_df = build_export_data(all_metrics)
 
-        # Create file path using pathlib
-        file_base = Path(data_file_path).stem
-        analysis_folder = Path("extracted_data") / f"{file_base}_MRP_analysis"
-        analysis_folder.mkdir(parents=True, exist_ok=True)
         date_str = datetime.now().strftime("%Y%m%d")
-        excel_path = (
-            analysis_folder / f"{file_base}_MRP_analysis_{date_str}_sleep_analysis.xlsx"
-        )
+        excel_path = analysis_folder / f"{analysis_folder.name}_{date_str}.xlsx"
 
         with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
             summary_df.to_excel(writer, sheet_name="Summary Data", index=False)
+
+            start_row = 0
+            if session_overall_df is not None and not session_overall_df.empty:
+                # Title row, then df one row below
+                session_overall_df.to_excel(
+                    writer, sheet_name="Atmospheric Pressure", index=False, startrow=start_row + 1
+                )
+                ws = writer.sheets["Atmospheric Pressure"]
+                ws.cell(row=start_row + 1, column=1).value = "Overall Session"
+                start_row += len(session_overall_df) + 3
+            if session_binned_df is not None and not session_binned_df.empty:
+                session_binned_df.to_excel(
+                    writer, sheet_name="Atmospheric Pressure", index=False, startrow=start_row + 1
+                )
+                ws = writer.sheets["Atmospheric Pressure"]
+                ws.cell(row=start_row + 1, column=1).value = "Binned"
+
             global_summary_df.to_excel(writer, sheet_name="Global Summary", index=False)
             per_bin_df.to_excel(writer, sheet_name="Per Bin", index=False)
             per_period_df.to_excel(writer, sheet_name="Per Period", index=False)

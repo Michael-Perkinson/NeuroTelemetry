@@ -13,10 +13,12 @@ The application supports two analysis modes.
 ### Behaviour‑aligned telemetry analysis
 
 - Aligns pressure, temperature, and activity data to behavioural events
+- Parses atmospheric pressure (APR/BARO column) from newer Ponemah recordings where present
 - Detects respiratory cycles from pressure signals
 - Identifies valid respiratory periods
 - Computes respiratory timing, duty cycle, frequency, and drive
 - Exports Excel summaries, interactive HTML plots, SVG figures, and breath‑by‑breath CSVs
+- Exports a Session Summary sheet with overall and binned atmospheric pressure metrics (mean, SD, min, max) across the full recording
 
 ### Injection‑aligned photometry analysis
 
@@ -70,7 +72,10 @@ This launches the graphical interface.
 Each analysis run creates a self‑contained output folder containing:
 
 - Run configuration (JSON)
-- Excel summaries
+- Excel workbook with sheets:
+  - **Summary Data** — valid respiratory periods per behaviour window
+  - **Atmospheric Pressure** — overall session stats (one row: mean/SD/min/max) followed by time-binned atmospheric pressure stats at a configurable interval (default 5 minutes); only present when an APR/BARO column exists in the recording
+  - **Global Summary**, **Per Bin**, **Per Period**, **Per Window** — respiratory metrics at each scope
 - Interactive HTML plots
 - Static SVG figures
 - CSV exports (where applicable)
@@ -82,3 +87,5 @@ Each analysis run creates a self‑contained output folder containing:
 - `requirements.txt` contains runtime dependencies only
 - The pipeline prioritises robustness and interpretability over speed
 - Intended for research and analysis use, not real‑time or clinical deployment
+- The GUI remembers the last folder you browsed to and reopens there on the next run
+- The "Reset Saved Settings" option is in the `···` menu at the top left of the window

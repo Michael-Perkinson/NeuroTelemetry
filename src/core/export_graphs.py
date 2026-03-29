@@ -22,6 +22,8 @@ def export_full_time_range_plot(
     file_base: str,
     main_signal_col: str,  # e.g. "SmoothedPressure" or "dfof_465"
     main_signal_label: str,  # e.g. "Pressure" or "Photometry"
+    atm_pressure_data: pd.DataFrame | None = None,
+    behavior_windows: list[tuple[float, float]] | None = None,
 ):
     # --- Filter dataframes to range ---
     main_filtered = filter_df_by_time(main_data, min_time, max_time)
@@ -45,6 +47,8 @@ def export_full_time_range_plot(
         title,
         main_signal_col,
         main_signal_label,
+        atm_pressure_data=atm_pressure_data,
+        behavior_windows=behavior_windows,
     )
     save_path_html = os.path.join(
         full_trace_folder,
@@ -68,6 +72,8 @@ def export_full_time_range_plot(
         title,
         main_signal_col,
         main_signal_label,
+        atm_pressure_data=atm_pressure_data,
+        behavior_windows=behavior_windows,
     )
     print(f"Saved full trace SVG: {save_path_svg}")
 
@@ -172,6 +178,8 @@ def create_interactive_plot(
     title: str,
     main_signal_col: str,
     main_signal_label: str,
+    atm_pressure_data: pd.DataFrame | None = None,
+    behavior_windows: list[tuple[float, float]] | None = None,
 ) -> go.Figure:
     fig = go.Figure()
 
@@ -256,12 +264,41 @@ def create_interactive_plot(
             )
         )
 
+    # --- Atmospheric Pressure ---
+    if atm_pressure_data is not None and not atm_pressure_data.empty and "AtmPressure" in atm_pressure_data.columns:
+        atm_filtered = atm_pressure_data[
+            (atm_pressure_data["TimeSinceReference"] >= main_df["TimeSinceReference"].min()) &
+            (atm_pressure_data["TimeSinceReference"] <= main_df["TimeSinceReference"].max())
+        ]
+        fig.add_trace(
+            go.Scatter(
+                x=atm_filtered["TimeSinceReference"] / 60,
+                y=atm_filtered["AtmPressure"],
+                mode="lines",
+                name="Atm. Pressure",
+                line=dict(color="steelblue", width=1, dash="dot"),
+                yaxis="y3",
+            )
+        )
+
+    # --- Behavior window shading ---
+    if behavior_windows:
+        for bw_start, bw_end in behavior_windows:
+            fig.add_vrect(
+                x0=bw_start / 60,
+                x1=bw_end / 60,
+                fillcolor="rgba(0,200,0,0.08)",
+                line_width=0,
+                layer="below",
+            )
+
     # --- Layout ---
     fig.update_layout(
         title=title,
         xaxis_title="Time (minutes)",
         yaxis=dict(title=main_signal_label, color=main_color, range=[ymin, ymax]),
-        yaxis2=dict(title="Temperature", overlaying="y", side="right", color="red"),
+        yaxis2=dict(title="Temperature (°C)", overlaying="y", side="right", color="red"),
+        yaxis3=dict(title="Atm. Pressure (mmHg)", overlaying="y", side="right", anchor="free", position=1.0, color="steelblue"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=600,
         hovermode="x unified",
@@ -280,6 +317,8 @@ def create_static_plot(
     title: str,
     main_signal_col: str,
     main_signal_label: str,
+    atm_pressure_data: pd.DataFrame | None = None,
+    behavior_windows: list[tuple[float, float]] | None = None,
 ):
     fig, ax1 = plt.subplots(figsize=(12, 6))
 
@@ -352,6 +391,29 @@ def create_static_plot(
             s=30,
             label="Pre-Peaks",
         )
+
+    # --- Atmospheric Pressure ---
+    if atm_pressure_data is not None and not atm_pressure_data.empty and "AtmPressure" in atm_pressure_data.columns:
+        atm_filtered = atm_pressure_data[
+            (atm_pressure_data["TimeSinceReference"] >= main_df["TimeSinceReference"].min()) &
+            (atm_pressure_data["TimeSinceReference"] <= main_df["TimeSinceReference"].max())
+        ]
+        ax3 = ax1.twinx()
+        ax3.spines["right"].set_position(("axes", 1.12))
+        ax3.plot(
+            atm_filtered["TimeSinceReference"] / 60,
+            atm_filtered["AtmPressure"],
+            color="steelblue",
+            linestyle="dotted",
+            label="Atm. Pressure",
+            linewidth=1,
+        )
+        ax3.set_ylabel("Atm. Pressure (mmHg)", color="steelblue")
+
+    # --- Behavior window shading ---
+    if behavior_windows:
+        for bw_start, bw_end in behavior_windows:
+            ax1.axvspan(bw_start / 60, bw_end / 60, alpha=0.08, color="green")
 
     # --- Final touches ---
     ax1.set_title(title)

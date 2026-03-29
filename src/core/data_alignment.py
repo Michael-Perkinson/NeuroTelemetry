@@ -115,6 +115,7 @@ def prepare_numerical_data(
         "pressure": "Pressure",
         "activity": "Activity",
         "act": "Activity",
+        "apr": "AtmPressure",
     }
 
     mask = meta_data[0].str.startswith("# Col")
@@ -137,7 +138,7 @@ def prepare_numerical_data(
 
     # Reorder columns: DateTime first, then Pressure, Temp, Activity
     available_signals = [
-        sig for sig in ["Pressure", "Temp", "Activity"] if sig in column_order
+        sig for sig in ["Pressure", "Temp", "Activity", "AtmPressure"] if sig in column_order
     ]
     new_order = [0] + [column_order[sig] for sig in available_signals]
     all_numerical_data = all_numerical_data.iloc[:, new_order]
@@ -243,7 +244,7 @@ def build_output_frames(
 
     time_axis = processed["Pressure"]["TimeSinceReference"]
 
-    for sig in ["Temp", "Activity"]:
+    for sig in ["Temp", "Activity", "AtmPressure"]:
         if sig in numerical_data:
             processed[sig] = safe_interpolate(numerical_data, time_axis, sig)
 
