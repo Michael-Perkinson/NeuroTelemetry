@@ -248,12 +248,16 @@ def build_output_frames(
         if sig in numerical_data:
             processed[sig] = safe_interpolate(numerical_data, time_axis, sig)
 
-    # AtmPressure is 1 Hz — keep at native rate rather than interpolating to 500 Hz
-    # so that stats (mean, SD, N) are computed on real samples, not interpolated ones
+    # AtmPressure is 1 Hz — downsample to native rate using the recorded sample rate
+    # Ponemah repeats the last value at 500 Hz rather than leaving NaNs, so dropna()
+    # won't help — instead bin by sample period and keep one value per period
     if "AtmPressure" in numerical_data:
-        processed["AtmPressure"] = (
-            numerical_data[["TimeSinceReference", "AtmPressure"]].dropna().reset_index(drop=True)
-        )
+        atm_rate = sample_rates.get("AtmPressure", 1.0)
+        period = 1.0 / atm_rate
+        atm_df = numerical_data[["TimeSinceReference", "AtmPressure"]].copy()
+        atm_df["_bin"] = (atm_df["TimeSinceReference"] / period).round()
+        atm_df = atm_df.drop_duplicates(subset="_bin").drop(columns="_bin")
+        processed["AtmPressure"] = atm_df.reset_index(drop=True)
 
     return processed
 
