@@ -244,9 +244,16 @@ def build_output_frames(
 
     time_axis = processed["Pressure"]["TimeSinceReference"]
 
-    for sig in ["Temp", "Activity", "AtmPressure"]:
+    for sig in ["Temp", "Activity"]:
         if sig in numerical_data:
             processed[sig] = safe_interpolate(numerical_data, time_axis, sig)
+
+    # AtmPressure is 1 Hz — keep at native rate rather than interpolating to 500 Hz
+    # so that stats (mean, SD, N) are computed on real samples, not interpolated ones
+    if "AtmPressure" in numerical_data:
+        processed["AtmPressure"] = (
+            numerical_data[["TimeSinceReference", "AtmPressure"]].dropna().reset_index(drop=True)
+        )
 
     return processed
 
