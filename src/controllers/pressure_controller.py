@@ -6,6 +6,11 @@ import pandas as pd
 
 from src.core.adaptive_algorithms import get_time_bounds
 from src.core.data_alignment import extract_and_process_data
+from src.core.power_spectral_analysis import (
+    analyze_ttot_psd,
+    export_ttot_traces,
+    plot_psd_results,
+)
 from src.core.data_file_parser import retrieve_telemetry_data, safe_get_df
 from src.core.event_file_parser import (
     read_and_process_event_file,
@@ -150,9 +155,10 @@ def run_pressure_pipeline(
         window_periods,
     ) = find_valid_periods(
         results,
-        pressure_data,
         time_windows,
     )
+    
+    
 
     log("Computing respiratory metrics...")
     all_metrics = compute_respiratory_metrics_for_periods(
@@ -165,6 +171,12 @@ def run_pressure_pipeline(
     )
 
     min_time, max_time = get_time_bounds(pressure_data)
+    
+    psd_folder = analysis_folder / "psd"
+    export_ttot_traces(window_periods, psd_folder, log=log)
+    psd_results = analyze_ttot_psd(window_periods, psd_folder, log=log)
+    plot_psd_results(psd_results)
+
 
     summary_data = create_summary_data(
         valid_peak_times_all, updated_valid_periods, time_windows

@@ -25,7 +25,6 @@ def find_valid_periods(
             ]
         ],
     ],
-    pressure_data: pd.DataFrame,
     time_windows: list[tuple[float, float]],
 ) -> tuple[
     list[float],

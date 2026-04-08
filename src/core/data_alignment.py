@@ -237,8 +237,8 @@ def build_output_frames(
         raise ValueError("Pressure channel missing; cannot build timeline.")
 
     pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
-    prate = sample_rates["Pressure"]
-    processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
+    pressure_sample_rate = sample_rates["Pressure"]
+    processed["Pressure"] = preprocess_pressure_data(pressure_df, pressure_sample_rate)
 
     time_axis = processed["Pressure"]["TimeSinceReference"]
 
