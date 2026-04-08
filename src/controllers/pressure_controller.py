@@ -24,7 +24,15 @@ from src.core.period_analysis import (
     compute_respiratory_metrics_for_periods,
     find_valid_periods,
 )
-from src.core.power_spectral_analysis import export_ttot_traces
+from src.core.power_spectral_analysis import (
+    DEFAULT_PSD_NFFT,
+    DEFAULT_PSD_OVERLAP_FRACTION,
+    DEFAULT_PSD_RESAMPLE_HZ,
+    DEFAULT_PSD_SEGMENT_SECONDS,
+    DEFAULT_PSD_WELCH_WINDOWS,
+    analyze_ttot_psd,
+    export_ttot_traces,
+)
 from src.core.respiratory_metrics import (
     compute_atm_pressure_session_summary,
     compute_atm_pressure_time_bins,
@@ -98,6 +106,12 @@ def run_pressure_pipeline(
         "BinSize_s": bin_size_sec,
         "AtmPressureBinSize_s": atm_bin_size_sec,
         "ExportAtmPressureSummary": export_atm_summary,
+        "PSDMetric": "Ttot",
+        "PSDResampleHz": DEFAULT_PSD_RESAMPLE_HZ,
+        "PSDSegmentDuration_s": DEFAULT_PSD_SEGMENT_SECONDS,
+        "PSDWelchWindows": DEFAULT_PSD_WELCH_WINDOWS,
+        "PSDWelchOverlapFraction": DEFAULT_PSD_OVERLAP_FRACTION,
+        "PSDNFFT": DEFAULT_PSD_NFFT,
     }
 
     logs_folder = analysis_folder / "logs"
@@ -236,10 +250,23 @@ def run_pressure_pipeline(
         main_signal_label="Pressure",
     )
 
+    log("Computing Ttot variability PSD...")
+    psd_export_folder = analysis_folder / "PSD"
+    psd_results = analyze_ttot_psd(
+        window_periods=window_periods,
+        output_folder=psd_export_folder,
+        log=log,
+    )
+
     log("Saving Excel output...")
-    export_data_to_excel(summary_data, all_metrics, analysis_folder,
-                         session_overall_df=atm_overall_df,
-                         session_binned_df=atm_binned_df)
+    export_data_to_excel(
+        summary_data,
+        all_metrics,
+        analysis_folder,
+        session_overall_df=atm_overall_df,
+        session_binned_df=atm_binned_df,
+        psd_results=psd_results,
+    )
 
     log("Exporting Ttot breath-by-breath traces...")
     ttot_export_folder = analysis_folder / "Ttot_Traces"
@@ -252,6 +279,7 @@ def run_pressure_pipeline(
     return {
         "summary": summary_data,
         "metrics": all_metrics,
+        "psd": psd_results,
         "analysis_folder": base_name,
         "time_windows": time_windows,
         "config_path": f"{base_name}_analysis_config_{date_str}.json",

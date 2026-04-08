@@ -124,9 +124,12 @@ def build_export_data(
 
 
 def export_data_to_excel(
-    summary_data: list[dict], all_metrics: dict, analysis_folder: Path,
+    summary_data: list[dict],
+    all_metrics: dict,
+    analysis_folder: Path,
     session_overall_df: pd.DataFrame | None = None,
     session_binned_df: pd.DataFrame | None = None,
+    psd_results: dict[str, Any] | None = None,
 ) -> None:
     """Export data to Excel into the shared analysis folder alongside the graphs."""
     try:
@@ -135,6 +138,15 @@ def export_data_to_excel(
         global_summary_df = (
             pd.DataFrame([global_summary]) if global_summary else pd.DataFrame()
         )
+        psd_per_window_df = pd.DataFrame()
+        psd_pooled_df = pd.DataFrame()
+        psd_segment_summary_df = pd.DataFrame()
+        if psd_results:
+            psd_per_window_df = psd_results.get("per_window_psd", pd.DataFrame())
+            psd_pooled_df = psd_results.get("pooled_psd", pd.DataFrame())
+            psd_segment_summary_df = psd_results.get(
+                "segment_summary", pd.DataFrame()
+            )
 
         per_bin_df, per_period_df, per_window_df = build_export_data(all_metrics)
 
@@ -164,6 +176,13 @@ def export_data_to_excel(
             per_bin_df.to_excel(writer, sheet_name="Per Bin", index=False)
             per_period_df.to_excel(writer, sheet_name="Per Period", index=False)
             per_window_df.to_excel(writer, sheet_name="Per Window", index=False)
+            psd_per_window_df.to_excel(writer, sheet_name="PSD Per Window", index=False)
+            psd_pooled_df.to_excel(writer, sheet_name="PSD Pooled", index=False)
+            psd_segment_summary_df.to_excel(
+                writer,
+                sheet_name="PSD Segment Summary",
+                index=False,
+            )
 
         print(f"Exported to {excel_path}")
 
