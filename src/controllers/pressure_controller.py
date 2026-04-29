@@ -32,6 +32,7 @@ from src.core.power_spectral_analysis import (
     DEFAULT_PSD_WELCH_WINDOWS,
     analyze_ttot_psd,
     export_ttot_traces,
+    plot_psd_results,
 )
 from src.core.respiratory_metrics import (
     compute_atm_pressure_session_summary,
@@ -257,6 +258,7 @@ def run_pressure_pipeline(
         output_folder=psd_export_folder,
         log=log,
     )
+    plot_psd_results(psd_results, psd_export_folder, show=False, log=log)
 
     log("Saving Excel output...")
     export_data_to_excel(
