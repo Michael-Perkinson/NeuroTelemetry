@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
+from src.core.logger import log_warning
+
 
 def find_shoulders(
     dvdt_segment: np.ndarray,
@@ -33,8 +35,8 @@ def find_shoulders(
             search_start_index = nearest_to_zero_index
         else:
             search_start_index = 0
-            print(
-                f"Warning: No zero crossing found for peak at {peak_index}, "
+            log_warning(
+                f"No zero crossing found for peak at {peak_index}, "
                 "using start of segment"
             )
 

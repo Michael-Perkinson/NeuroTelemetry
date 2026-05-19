@@ -4,6 +4,8 @@ from typing import Any
 
 import pandas as pd
 
+from src.core.logger import log_error, log_info
+
 
 def create_summary_data(
     valid_peak_times_all: list[float],
@@ -184,10 +186,10 @@ def export_data_to_excel(
                 index=False,
             )
 
-        print(f"Exported to {excel_path}")
+        log_info(f"Exported to {excel_path}")
 
     except Exception as e:
-        print(f"Export failed: {e}")
+        log_error(f"Export failed: {e}")
 
 
 def export_binned_data_to_excel(
@@ -211,4 +213,4 @@ def export_binned_data_to_excel(
         # Raw data in a separate sheet
         df_raw.to_excel(writer, sheet_name="Raw Data", index=False)
 
-    print(f"Exported binned + raw data to {out_file}")
+    log_info(f"Exported binned + raw data to {out_file}")

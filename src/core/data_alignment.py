@@ -13,7 +13,7 @@ from src.core.adaptive_algorithms import (
     compute_first_derivative,
 )
 from src.core.data_file_parser import detect_skip_rows
-from src.core.logger import log_info
+from src.core.logger import log_info, log_warning
 
 
 def _to_datetime_with_ms(
@@ -321,8 +321,10 @@ def parse_numerical_data(
     # Debug check
     invalid = numerical_data["DateTime"].isna().sum()
     if invalid:
-        print(f"{invalid} DateTime values could not be parsed. First few bad rows:")
-        print(numerical_data[numerical_data["DateTime"].isna()].head())
+        log_warning(
+            f"{invalid} DateTime values could not be parsed. First few bad rows:\n"
+            f"{numerical_data[numerical_data['DateTime'].isna()].head().to_string()}"
+        )
 
     return numerical_data
 

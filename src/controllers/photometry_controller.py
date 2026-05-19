@@ -74,7 +74,7 @@ def run_photometry_pipeline(
         if log_callback:
             log_callback(msg)
         else:
-            print(msg)
+            log_info(msg)
 
     if pre_min <= 0 or post_min <= 0 or bin_min <= 0:
         raise ValueError("Pre, Post, and Bin durations must all be positive.")

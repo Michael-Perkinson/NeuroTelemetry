@@ -69,8 +69,7 @@ This launches the graphical interface.
 
 ## Batch Runs
 
-To run multiple pressure analyses without the GUI, create a CSV with one row
-per recording:
+To run multiple pressure analyses without the GUI, create a CSV with one row per recording:
 
 ```csv
 telemetry_file,event_file,behaviour,probe_time,video_time,bin_size
@@ -78,14 +77,24 @@ C:/path/to/recording_1_ponemah.csv,C:/path/to/recording_1_boris.csv,Time spent s
 C:/path/to/recording_2_ponemah.csv,C:/path/to/recording_2_boris.csv,Time spent sleeping,12/01/2025 09:01:53 AM,12/01/2025 09:01:48 AM,10
 ```
 
+| Column | Description |
+| --- | --- |
+| `telemetry_file` | Full path to the Ponemah `.csv` or `.ascii` file |
+| `event_file` | Full path to the BORIS `.csv` file |
+| `behaviour` | Behaviour label to analyse — must match the BORIS label exactly |
+| `probe_time` | Probe reference timestamp (e.g. `15/05/2024 10:46:38 AM`) |
+| `video_time` | Video reference timestamp (e.g. `15/05/2024 10:46:46 AM`) |
+| `bin_size` | Bin size in seconds (integer, e.g. `10`) |
+
 Then run:
 
 ```bash
 python scripts/batch_run.py batch_config.csv
 ```
 
-Outputs are written beside each telemetry file under
-`extracted_data/<recording_name>_PressureAnalysis/`.
+Outputs are written beside each telemetry file under `extracted_data/<recording_name>_PressureAnalysis/`, identical to a GUI run.
+
+Failed recordings are skipped and reported at the end — the rest of the batch still completes.
 
 ---
 

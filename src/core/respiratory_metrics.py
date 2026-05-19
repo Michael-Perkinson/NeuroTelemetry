@@ -3,6 +3,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from src.core.logger import log_warning
+
 
 def calculate_binned_period_metrics(
     period_start_time: float,
@@ -50,7 +52,7 @@ def calculate_binned_period_metrics(
         ]
 
         if len(bin_peaks) < 2 or len(bin_troughs) < 2:
-            print(f"Skipping bin {i + 1} due to insufficient peaks or troughs.")
+            log_warning(f"Skipping bin {i + 1} due to insufficient peaks or troughs.")
             continue
 
         # Calculate respiratory metrics

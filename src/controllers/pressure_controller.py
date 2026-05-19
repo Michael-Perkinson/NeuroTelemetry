@@ -88,7 +88,7 @@ def run_pressure_pipeline(
         if log_callback:
             log_callback(msg)
         else:
-            print(msg)
+            log_info(msg)
 
     start_time = datetime.now()
     file_base = output_path.stem

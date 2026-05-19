@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.core.logger import log_info, log_warning
+
 
 # --- Main Full Trace Export ---
 def export_full_time_range_plot(
@@ -55,7 +57,7 @@ def export_full_time_range_plot(
         f"{file_base}_full_trace_{min_time:.2f}_to_{max_time:.2f}.html",
     )
     fig_html.write_html(save_path_html)
-    print(f"Saved full trace HTML: {save_path_html}")
+    log_info(f"Saved full trace HTML: {save_path_html}")
 
     # --- Static plot ---
     save_path_svg = os.path.join(
@@ -75,7 +77,7 @@ def export_full_time_range_plot(
         atm_pressure_data=atm_pressure_data,
         behavior_windows=behavior_windows,
     )
-    print(f"Saved full trace SVG: {save_path_svg}")
+    log_info(f"Saved full trace SVG: {save_path_svg}")
 
 
 # --- Extracted helper for peaks ---
@@ -126,7 +128,7 @@ def export_behavior_images_interactive(
         )
 
         if pressure_segment.empty or temp_segment.empty or activity_segment.empty:
-            print(f"Skipping plot for window {start_time}-{end_time}: no data.")
+            log_warning(f"Skipping plot for window {start_time}-{end_time}: no data.")
             continue
 
         title = f"{behaviour_to_plot} from {start_time:.2f} to {end_time:.2f}"
@@ -146,7 +148,7 @@ def export_behavior_images_interactive(
             main_signal_label,
         )
         fig_html.write_html(html_path)
-        print(f"Saved behavior HTML: {html_path}")
+        log_info(f"Saved behavior HTML: {html_path}")
 
         svg_path = os.path.join(
             svg_save_folder,
@@ -163,9 +165,9 @@ def export_behavior_images_interactive(
             main_signal_col,
             main_signal_label,
         )
-        print(f"Saved behavior SVG: {svg_path}")
+        log_info(f"Saved behavior SVG: {svg_path}")
 
-    print("Finished exporting all interactive and static plots to folders.")
+    log_info("Finished exporting all interactive and static plots to folders.")
 
 
 # --- Plot Helpers ---

@@ -35,6 +35,7 @@ __pycache__/
 .venv/
 venv/
 *.env
+.claude/
 
 # Logs
 *.log
