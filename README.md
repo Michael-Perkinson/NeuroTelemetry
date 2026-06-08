@@ -47,10 +47,16 @@ source venv/bin/activate    # macOS
 venv\Scripts\activate.bat   # Windows
 ```
 
-Install dependencies:
+Install the project and dependencies:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -e .
+```
+
+If you use the optional clustering tuning script:
+
+```bash
+python -m pip install -e ".[tuning]"
 ```
 
 ---
@@ -115,7 +121,8 @@ Each analysis run creates a self‑contained output folder containing:
 
 ## Notes
 
-- `requirements.txt` contains runtime dependencies only
+- `pyproject.toml` contains package metadata and runtime dependencies
+- Optional clustering tuning dependencies are available with `.[tuning]`
 - The pipeline prioritises robustness and interpretability over speed
 - Intended for research and analysis use, not real‑time or clinical deployment
 - The GUI remembers the last folder you browsed to and reopens there on the next run
