@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import shutil
 import unittest
 from pathlib import Path
-import shutil
 from uuid import uuid4
 
 import numpy as np
@@ -13,7 +13,7 @@ from src.core.power_spectral_analysis import (
     DEFAULT_PSD_OVERLAP_FRACTION,
     DEFAULT_PSD_RESAMPLE_HZ,
     DEFAULT_PSD_SEGMENT_SECONDS,
-    DEFAULT_PSD_WELCH_WINDOWS,
+    DEFAULT_PSD_SMOOTH_NPERSEG,
     _compute_welch_psd,
     _iter_segment_bounds,
     _resample_segment,
@@ -48,12 +48,19 @@ class TestPowerSpectralAnalysis(unittest.TestCase):
         tmpdir.mkdir(parents=True, exist_ok=True)
         return tmpdir
 
-    def test_segments_shorter_than_sixty_seconds_are_discarded(self) -> None:
-        self.assertEqual(_iter_segment_bounds(0.0, 59.9, 60.0), [])
+    def test_segments_shorter_than_segment_duration_are_discarded(self) -> None:
+        self.assertEqual(
+            _iter_segment_bounds(
+                0.0,
+                DEFAULT_PSD_SEGMENT_SECONDS - 0.1,
+                DEFAULT_PSD_SEGMENT_SECONDS,
+            ),
+            [],
+        )
 
-    def test_longer_periods_split_into_contiguous_sixty_second_segments(self) -> None:
-        bounds = _iter_segment_bounds(0.0, 180.0, 60.0)
-        self.assertEqual(bounds, [(0.0, 60.0), (60.0, 120.0), (120.0, 180.0)])
+    def test_longer_periods_split_into_contiguous_segments(self) -> None:
+        bounds = _iter_segment_bounds(0.0, 150.0, 50.0)
+        self.assertEqual(bounds, [(0.0, 50.0), (50.0, 100.0), (100.0, 150.0)])
 
     def test_resampled_segments_have_expected_length_and_centering(self) -> None:
         trace_df = _make_trace_df(duration_s=180.0, interval_s=1.0)
@@ -71,7 +78,8 @@ class TestPowerSpectralAnalysis(unittest.TestCase):
             len(resampled),
             int(DEFAULT_PSD_SEGMENT_SECONDS * DEFAULT_PSD_RESAMPLE_HZ),
         )
-        self.assertAlmostEqual(float(resampled["TtotCentered_s"].mean()), 0.0, places=10)
+        self.assertAlmostEqual(float(resampled["SegmentTime_s"].iloc[0]), 0.0)
+        self.assertFalse(resampled["Ttot_s"].isna().any())
         self.assertGreater(float(resampled["Ttot_s"].std()), 0.0)
 
     def test_welch_psd_recovers_expected_modulation_frequency(self) -> None:
@@ -85,10 +93,10 @@ class TestPowerSpectralAnalysis(unittest.TestCase):
         centered_signal = np.sin(2.0 * np.pi * modulation_hz * time_s)
 
         freq_hz, psd = _compute_welch_psd(
-            centered_signal=centered_signal,
+            signal=centered_signal,
             resample_hz=DEFAULT_PSD_RESAMPLE_HZ,
+            smooth_nperseg=DEFAULT_PSD_SMOOTH_NPERSEG,
             nfft=DEFAULT_PSD_NFFT,
-            welch_windows=DEFAULT_PSD_WELCH_WINDOWS,
             overlap_fraction=DEFAULT_PSD_OVERLAP_FRACTION,
         )
 
@@ -103,7 +111,10 @@ class TestPowerSpectralAnalysis(unittest.TestCase):
         tmpdir = self._make_local_tempdir()
         try:
             output_folder = tmpdir / "PSD"
-            results = analyze_ttot_psd(window_periods=window_periods, output_folder=output_folder)
+            results = analyze_ttot_psd(
+                window_periods=window_periods,
+                output_folder=output_folder,
+            )
 
             self.assertFalse(results["segment_summary"].empty)
             self.assertFalse(results["per_window_psd"].empty)
@@ -117,11 +128,13 @@ class TestPowerSpectralAnalysis(unittest.TestCase):
                 "ttot_psd_pooled.csv",
                 "ttot_resampled_segments.csv",
             }
-            self.assertTrue(expected_files.issubset({p.name for p in output_folder.iterdir()}))
+            self.assertTrue(
+                expected_files.issubset({p.name for p in output_folder.iterdir()})
+            )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_analyze_ttot_psd_discards_periods_shorter_than_sixty_seconds(self) -> None:
+    def test_analyze_ttot_psd_discards_short_periods(self) -> None:
         window_periods = {
             "0.0-40.0": [_make_period(duration_s=40.0, interval_s=1.0)],
         }

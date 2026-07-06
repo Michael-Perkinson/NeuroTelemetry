@@ -112,7 +112,8 @@ def bin_peaks(
             arr = arr[~np.isnan(arr)]
             if len(arr) == 0:
                 return np.nan, np.nan
-            return np.mean(arr), np.std(arr, ddof=1) / np.sqrt(len(arr))
+            sem = np.nan if len(arr) < 2 else np.std(arr, ddof=1) / np.sqrt(len(arr))
+            return np.mean(arr), sem
 
         mean_amp, sem_amp = mean_sem(
             sub["Amplitude"]) if "Amplitude" in sub else (np.nan, np.nan)

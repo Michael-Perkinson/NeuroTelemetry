@@ -37,11 +37,16 @@ def bin_signal(
     for i in range(len(bin_edges) - 1):
         mask = bin_indices == i
         vals = y[mask]
-        if len(vals) == 0:
+        valid_vals = vals[~np.isnan(vals)]
+        if len(valid_vals) == 0:
             mean, sem = np.nan, np.nan
         else:
-            mean = float(np.nanmean(vals))
-            sem = float(np.nanstd(vals, ddof=1)) / np.sqrt(np.sum(~np.isnan(vals)))
+            mean = float(np.mean(valid_vals))
+            sem = (
+                np.nan
+                if len(valid_vals) < 2
+                else float(np.std(valid_vals, ddof=1)) / np.sqrt(len(valid_vals))
+            )
 
         results.append([bin_edges[i], bin_edges[i + 1], mean, sem])
 
@@ -63,7 +68,7 @@ def combine_signal_bins(
 
     key_cols = ["BinStart", "BinEnd"]
 
-    if temp_binned is not None:
+    if temp_binned is not None and not temp_binned.empty:
         temp_binned = temp_binned.rename(
             columns={
                 "Mean": "Temp_Mean",
@@ -71,8 +76,11 @@ def combine_signal_bins(
             }
         )[key_cols + ["Temp_Mean", "Temp_SEM"]]
         df = df.merge(temp_binned, on=key_cols, how="left")
+    else:
+        df["Temp_Mean"] = np.nan
+        df["Temp_SEM"] = np.nan
 
-    if activity_binned is not None:
+    if activity_binned is not None and not activity_binned.empty:
         activity_binned = activity_binned.rename(
             columns={
                 "Mean": "Act_Mean",
@@ -80,6 +88,9 @@ def combine_signal_bins(
             }
         )[key_cols + ["Act_Mean", "Act_SEM"]]
         df = df.merge(activity_binned, on=key_cols, how="left")
+    else:
+        df["Act_Mean"] = np.nan
+        df["Act_SEM"] = np.nan
 
     # Columns now carry bins aligned to injection (negative to positive)
     return df[
