@@ -3,6 +3,7 @@
 import traceback
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtCore import QDateTime, QSettings, Qt
 from PySide6.QtWidgets import (
@@ -281,16 +282,18 @@ class DataConfigGUI(QWidget):
     def restore_settings(self):
         s = QSettings("NeuroTelemetry", "DataConfigGUI")
         self.behaviour_input.setText(
-            s.value("behaviour_input", "Time spent sleeping", type=str)
+            cast(str, s.value("behaviour_input", "Time spent sleeping", type=str))
         )
-        self.bin_size.setValue(s.value("bin_size", 10, type=int))
-        self.atm_bin_size.setValue(s.value("atm_bin_size", 300, type=int))
-        checked = s.value("export_atm_summary", True, type=bool)
+        self.bin_size.setValue(cast(int, s.value("bin_size", 10, type=int)))
+        self.atm_bin_size.setValue(cast(int, s.value("atm_bin_size", 300, type=int)))
+        checked = cast(bool, s.value("export_atm_summary", True, type=bool))
         self.export_atm_summary.setChecked(checked)
-        self.injection_sec.setValue(s.value("injection_sec", 0, type=int))
-        self.photo_pre_min.setValue(s.value("photo_pre_min", 30, type=int))
-        self.photo_post_min.setValue(s.value("photo_post_min", 360, type=int))
-        self.photo_bin_min.setValue(s.value("photo_bin_min", 30, type=int))
+        self.injection_sec.setValue(cast(int, s.value("injection_sec", 0, type=int)))
+        self.photo_pre_min.setValue(cast(int, s.value("photo_pre_min", 30, type=int)))
+        self.photo_post_min.setValue(
+            cast(int, s.value("photo_post_min", 360, type=int))
+        )
+        self.photo_bin_min.setValue(cast(int, s.value("photo_bin_min", 30, type=int)))
 
     def closeEvent(self, event):
         self.save_settings()
@@ -305,7 +308,7 @@ class DataConfigGUI(QWidget):
 
     def select_file(self, target_entry):
         s = QSettings("NeuroTelemetry", "DataConfigGUI")
-        last_dir = s.value("last_directory", "", type=str)
+        last_dir = cast(str, s.value("last_directory", "", type=str))
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select File",
