@@ -60,7 +60,7 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m ruff check .
 python -m ruff format --check .
-python -m mypy .
+python -m mypy src tests main.py scripts
 ```
 
 If you use the optional clustering tuning script:

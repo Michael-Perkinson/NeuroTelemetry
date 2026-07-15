@@ -33,4 +33,4 @@ jobs:
         run: python -m ruff format --check .
 
       - name: Run mypy
-        run: python -m mypy .
+        run: python -m mypy src tests main.py scripts
