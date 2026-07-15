@@ -260,7 +260,7 @@ def identify_new_periods(
         if len(recent_intervals) > interval_window:
             recent_intervals.pop(0)
 
-        median_interval = np.median(recent_intervals)
+        median_interval: float = float(np.median(recent_intervals))
 
         if interval > break_multiplier * median_interval:
             if len(current_period_peaks) >= min_peaks:
