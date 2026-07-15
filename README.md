@@ -17,7 +17,9 @@ The application supports two analysis modes.
 - Detects respiratory cycles from pressure signals
 - Identifies valid respiratory periods
 - Computes respiratory timing, duty cycle, frequency, and drive
-- Exports Excel summaries, interactive HTML plots, SVG figures, and breath‑by‑breath CSVs
+- Computes Ttot variability power spectral density (PSD) for each behavioural window
+- Exports Excel summaries, interactive HTML plots, SVG figures, and breath-by-breath CSVs
+- Exports PSD metrics, spectra, rejection/QC data, comparison spectra, and summary figures
 - Exports a Session Summary sheet with overall and binned atmospheric pressure metrics (mean, SD, min, max) across the full recording
 
 ### Injection‑aligned photometry analysis
@@ -25,7 +27,7 @@ The application supports two analysis modes.
 - Aligns photometry signals to an injection or event time
 - Detects photometry peaks and per‑peak metrics
 - Bins signals and peaks relative to injection (mean ± SEM)
-- Optionally integrates temperature and activity data from telelmetry implants
+- Optionally integrates temperature and activity data from telemetry implants
 - Exports Excel summaries and plots
 
 ---
@@ -116,16 +118,37 @@ Failed recordings are skipped and reported at the end — the rest of the batch 
 
 ## Outputs
 
-Each analysis run creates a self‑contained output folder containing:
+Pressure analysis is written beside the telemetry file under
+`extracted_data/<recording_name>_PressureAnalysis/`. The folder contains:
 
-- Run configuration (JSON)
-- Excel workbook with sheets:
-  - **Summary Data** — valid respiratory periods per behaviour window
-  - **Atmospheric Pressure** — overall session stats (one row: mean/SD/min/max) followed by time-binned atmospheric pressure stats at a configurable interval (default 5 minutes); only present when an APR/BARO column exists in the recording
-  - **Global Summary**, **Per Bin**, **Per Period**, **Per Window** — respiratory metrics at each scope
-- Interactive HTML plots
-- Static SVG figures
-- CSV exports (where applicable)
+- The main Excel workbook with:
+  - **Summary Data** — valid respiratory periods per behavioural window
+  - **Atmospheric Pressure** — overall and time-binned atmospheric pressure statistics when an APR/BARO channel is present and export is enabled
+  - **Global Summary**, **Per Bin**, **Per Period**, and **Per Window** — respiratory metrics at each scope
+  - **PSD Per Window**, **PSD Pooled**, and **PSD Segment Summary** — Ttot variability spectra and quality-control summaries
+- `PSD/` with the standalone `ttot_psd_summary.xlsx` workbook, machine-readable CSV exports, rejected-segment details, and PNG/SVG QC figures
+- `Ttot_Traces/` with breath-by-breath Ttot traces for each valid behavioural window
+- Interactive HTML plots and static SVG figures for full recordings and behavioural windows
+- `logs/analysis_config_<timestamp>.json` describing the run and PSD parameters
+
+Photometry analysis is written under
+`extracted_data/<recording_name>_PhotometryAnalysis/` and contains:
+
+- An Excel workbook with **Binned Data** and **Raw Data** sheets
+- Interactive HTML and static SVG plots
+- `analysis_config_<timestamp>.json` describing the alignment and binning settings
+
+### Ttot PSD method
+
+The primary PSD calculation follows the supplied MATLAB workflow:
+
+- Breath durations are divided into 50-second segments and resampled at 10 Hz using cubic-spline interpolation
+- Each valid respiratory period is trimmed by 10 breaths at each end before segmentation
+- Resampled Ttot is mean-centred without additional detrending
+- Welch PSD uses a symmetric 100-sample Hamming window, 50% overlap, and a 2048-point FFT
+- Segment spectra are averaged within each behavioural window; a separate `N/3` Welch-window result is exported for comparison
+
+At 10 Hz, the primary 100-sample Welch window has a nominal frequency resolution of approximately 0.1 Hz. Activity near 0.02 Hz should therefore be interpreted as very-low-frequency or near-DC activity, not as a precisely resolved 0.02 Hz peak. The exported AUC band is an exploratory mouse adaptation and should be interpreted alongside the PSD curve and QC fields.
 
 ---
 
