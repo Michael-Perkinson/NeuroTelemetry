@@ -19,6 +19,7 @@ class TestPhotometryMetrics(unittest.TestCase):
 
         trimmed = trim_to_window(df, 1.0, 2.0)
 
+        assert trimmed is not None
         self.assertEqual(trimmed["TimeSinceReference"].tolist(), [1.0, 2.0])
 
     def test_trim_to_window_returns_none_for_none_input(self) -> None:

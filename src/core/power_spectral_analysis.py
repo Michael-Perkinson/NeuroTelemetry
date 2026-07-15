@@ -9,15 +9,19 @@ import pandas as pd
 from scipy.integrate import simpson
 from scipy.interpolate import CubicSpline
 from scipy.signal import welch
+from scipy.signal.windows import hamming
 
-DEFAULT_PSD_RESAMPLE_HZ: float = 10.0        # Hz
-DEFAULT_PSD_SEGMENT_SECONDS: float = 50.0    # s — Nico: 50 s keeps segments stationary
-DEFAULT_PSD_END_TRIM_SAMPLES: int = 10       # Nico: drop first/last 10 samples per period
-DEFAULT_PSD_WELCH_WINDOWS: int = 3           # 3 equal subwindows, 50% overlap (Bourdillon)
+DEFAULT_PSD_RESAMPLE_HZ: float = 10.0  # Hz
+DEFAULT_PSD_SEGMENT_SECONDS: float = 50.0  # s — Nico: 50 s keeps segments stationary
+DEFAULT_PSD_END_TRIM_SAMPLES: int = 10  # Nico: drop first/last 10 samples per period
+DEFAULT_PSD_WELCH_WINDOWS: int = 3  # Nico comparison window length: round(N / 3)
 DEFAULT_PSD_OVERLAP_FRACTION: float = 0.5
-DEFAULT_PSD_NFFT: int = 2048                 # Nico: zero-pad to 2048 for smooth curve
-DEFAULT_PSD_SMOOTH_NPERSEG: int = 100        # Nico: fixed 100-sample window for saved/averaged PSD
-DEFAULT_PSD_AUC_BAND_HZ: float = 0.25       # ±Hz around fmax
+DEFAULT_PSD_NFFT: int = 2048  # Nico: zero-pad to 2048 for smooth curve
+DEFAULT_PSD_SMOOTH_NPERSEG: int = (
+    100  # Nico: fixed 100-sample window for saved/averaged PSD
+)
+DEFAULT_PSD_AUC_BAND_HZ: float = 0.25  # ±Hz around fmax
+DEFAULT_PSD_WINDOW: str = "hamming"
 
 
 # ---------------------------------------------------------------------------
@@ -31,8 +35,7 @@ def _sanitize_peak_times(peak_times: pd.Series) -> np.ndarray:
     peaks = peaks[np.isfinite(peaks)]
     if peaks.size < 2:
         return np.array([], dtype=float)
-    keep = np.concatenate(([True], np.diff(peaks) > 0))
-    return peaks[keep]
+    return np.unique(peaks)
 
 
 def _build_ttot_trace(period: dict[str, Any]) -> pd.DataFrame:
@@ -68,7 +71,7 @@ def _trim_period_ends(trace_df: pd.DataFrame, n_samples: int) -> pd.DataFrame:
     """
     if len(trace_df) <= 2 * n_samples:
         return pd.DataFrame(columns=trace_df.columns)
-    return trace_df.iloc[n_samples: len(trace_df) - n_samples].reset_index(drop=True)
+    return trace_df.iloc[n_samples : len(trace_df) - n_samples].reset_index(drop=True)
 
 
 def _iter_segment_bounds(
@@ -132,7 +135,7 @@ def _resample_segment(
 
     spline = CubicSpline(segment_times, segment_values, extrapolate=False)
     resampled_ttot = spline(resampled_time)
-    if np.isnan(resampled_ttot).any():
+    if not np.isfinite(resampled_ttot).all() or np.any(resampled_ttot <= 0):
         return None
 
     return pd.DataFrame(
@@ -151,11 +154,11 @@ def _compute_welch_psd(
     overlap_fraction: float,
     nfft: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Welch PSD using a fixed nperseg window with zero-padding to nfft.
+    """Welch PSD using MATLAB-compatible Hamming windows.
 
     Nico uses a fixed 100-sample window (not signal_length/3) with 50%
     overlap and nfft=2048 for the averaged PSD. This gives a smooth curve
-    with fine frequency resolution via zero-padding. Mean is subtracted
+    on a fine frequency grid via zero-padding. Mean is subtracted
     inline before the Welch call rather than via a separate centering step.
     """
     if signal.size == 0:
@@ -163,12 +166,18 @@ def _compute_welch_psd(
     nperseg = min(smooth_nperseg, signal.size)
     if nperseg < 2:
         return np.array([], dtype=float), np.array([], dtype=float)
+    if not 0 <= overlap_fraction < 1:
+        raise ValueError("Welch overlap fraction must be in [0, 1).")
+    if nfft < nperseg:
+        raise ValueError("NFFT must be at least as large as the Welch window.")
     noverlap = int(round(nperseg * overlap_fraction))
+    if noverlap >= nperseg:
+        raise ValueError("Welch overlap must be smaller than the window length.")
     centered = signal - float(np.mean(signal))
     freq_hz, psd = welch(
         centered,
         fs=resample_hz,
-        window="hann",
+        window=hamming(nperseg, sym=True),
         nperseg=nperseg,
         noverlap=noverlap,
         nfft=nfft,
@@ -214,10 +223,12 @@ def _mean_psd_table(
 def _metrics_table(
     per_window_metrics: dict[str, dict[str, float]],
     resample_hz: float,
+    smooth_nperseg: int,
 ) -> pd.DataFrame:
     """Build the compact per-window PSD table intended for collation/QC."""
     rows: list[dict[str, Any]] = []
     fmax_high_warn = resample_hz / 2 * 0.8
+    nominal_resolution_hz = resample_hz / smooth_nperseg
 
     for window_key, metrics in per_window_metrics.items():
         fmax = float(metrics.get("fmax", np.nan))
@@ -225,6 +236,11 @@ def _metrics_table(
         if np.isfinite(fmax):
             if fmax == 0.0:
                 warning = "fmax at 0 Hz; inspect PSD curve"
+            elif fmax < nominal_resolution_hz:
+                warning = (
+                    "fmax below nominal Welch resolution; interpret as "
+                    "very-low-frequency power"
+                )
             elif fmax > fmax_high_warn:
                 warning = "fmax near Nyquist; inspect PSD curve"
 
@@ -235,6 +251,7 @@ def _metrics_table(
                 "PSDmax_s2_per_Hz": float(metrics.get("PSDmax", np.nan)),
                 "AUC_s2": float(metrics.get("AUC", np.nan)),
                 "n_segments": int(metrics.get("n_segments", 0)),
+                "NominalWelchResolution_Hz": nominal_resolution_hz,
                 "QC_Warning": warning,
             }
         )
@@ -247,6 +264,7 @@ def _metrics_table(
             "PSDmax_s2_per_Hz",
             "AUC_s2",
             "n_segments",
+            "NominalWelchResolution_Hz",
             "QC_Warning",
         ],
     )
@@ -259,6 +277,7 @@ def _export_psd_workbook(
     rejection_df: pd.DataFrame,
     segment_summary_df: pd.DataFrame,
     per_window_psd_df: pd.DataFrame,
+    comparison_per_window_psd_df: pd.DataFrame,
     log=print,
 ) -> None:
     """Write the PSD workbook students can send back for easy collation."""
@@ -266,7 +285,9 @@ def _export_psd_workbook(
 
     accepted_segments = int(len(segment_summary_df))
     rejected_rows = int(len(rejection_df))
-    windows_with_psd = int(metrics_df["Window"].nunique()) if not metrics_df.empty else 0
+    windows_with_psd = (
+        int(metrics_df["Window"].nunique()) if not metrics_df.empty else 0
+    )
     windows_with_warnings = (
         int((metrics_df["QC_Warning"].fillna("") != "").sum())
         if not metrics_df.empty
@@ -295,6 +316,9 @@ def _export_psd_workbook(
         rejection_df.to_excel(writer, sheet_name="Rejected", index=False)
         segment_summary_df.to_excel(writer, sheet_name="Segment Summary", index=False)
         per_window_psd_df.to_excel(writer, sheet_name="Mean PSD Curves", index=False)
+        comparison_per_window_psd_df.to_excel(
+            writer, sheet_name="Comparison PSD", index=False
+        )
 
         for sheet in writer.book.worksheets:
             sheet.freeze_panes = "A2"
@@ -304,9 +328,9 @@ def _export_psd_workbook(
                     for cell in column_cells
                 )
                 adjusted_width = min(max(max_length + 2, 12), 48)
-                sheet.column_dimensions[column_cells[0].column_letter].width = (
-                    adjusted_width
-                )
+                sheet.column_dimensions[
+                    column_cells[0].column_letter
+                ].width = adjusted_width
 
     log(f"Ttot PSD workbook saved: {workbook_path}")
 
@@ -382,49 +406,73 @@ def analyze_ttot_psd(
 
     Writes CSV outputs to `output_folder` and returns DataFrames for export.
     """
+    if resample_hz <= 0 or segment_seconds <= 0:
+        raise ValueError("PSD resample rate and segment duration must be positive.")
+    if smooth_nperseg < 2:
+        raise ValueError("Primary Welch window must contain at least two samples.")
+    if welch_windows < 1:
+        raise ValueError("Welch comparison divisor must be at least 1.")
+    segment_point_count = len(
+        np.arange(0.0, segment_seconds, 1.0 / resample_hz, dtype=float)
+    )
+    if segment_point_count < 2:
+        raise ValueError("PSD segments must contain at least two resampled points.")
+    primary_nperseg = min(smooth_nperseg, segment_point_count)
+    comparison_nperseg = max(2, round(segment_point_count / welch_windows))
     output_folder.mkdir(parents=True, exist_ok=True)
 
     segment_rows: list[dict[str, Any]] = []
     segment_psd_frames: list[pd.DataFrame] = []
+    comparison_segment_psd_frames: list[pd.DataFrame] = []
     resampled_trace_frames: list[pd.DataFrame] = []
     per_window_psd_frames: list[pd.DataFrame] = []
+    comparison_per_window_psd_frames: list[pd.DataFrame] = []
     rejection_rows: list[dict[str, Any]] = []
 
     pooled_psd_arrays: list[np.ndarray] = []
     pooled_freq_hz: np.ndarray | None = None
     window_psd_lookup: dict[str, list[np.ndarray]] = {}
+    comparison_window_psd_lookup: dict[str, list[np.ndarray]] = {}
     per_window_metrics: dict[str, dict[str, float]] = {}
 
     total_candidate_segments = 0
 
     for window_key, periods in window_periods.items():
         window_psd_lookup.setdefault(window_key, [])
+        comparison_window_psd_lookup.setdefault(window_key, [])
 
         for period_idx, period in enumerate(periods, start=1):
             period_name = period.get("name", f"Period_{period_idx}")
             trace_df = _build_ttot_trace(period)
             if trace_df.empty:
-                rejection_rows.append({
-                    "Window": window_key,
-                    "Period": period_name,
-                    "RejectionReason": "no valid breaths after sanitization",
-                    "PeriodDuration_s": np.nan,
-                    "RawBreaths": 0,
-                    "SegmentIndex": np.nan,
-                })
+                rejection_rows.append(
+                    {
+                        "Window": window_key,
+                        "Period": period_name,
+                        "RejectionReason": "no valid breaths after sanitization",
+                        "PeriodDuration_s": np.nan,
+                        "RawBreaths": 0,
+                        "SegmentIndex": np.nan,
+                    }
+                )
                 continue
 
             # Trim period ends before segmenting (Nico: 10 samples each end)
             trace_df = _trim_period_ends(trace_df, end_trim_samples)
             if trace_df.empty:
-                rejection_rows.append({
-                    "Window": window_key,
-                    "Period": period_name,
-                    "RejectionReason": f"too few breaths after trimming {end_trim_samples} samples each end",
-                    "PeriodDuration_s": np.nan,
-                    "RawBreaths": 0,
-                    "SegmentIndex": np.nan,
-                })
+                rejection_rows.append(
+                    {
+                        "Window": window_key,
+                        "Period": period_name,
+                        "RejectionReason": (
+                            "too few breaths after trimming "
+                            f"{end_trim_samples} samples each end"
+                        ),
+                        "PeriodDuration_s": np.nan,
+                        "RawBreaths": 0,
+                        "SegmentIndex": np.nan,
+                    }
+                )
                 continue
 
             trace_start = float(trace_df["TimeOfBreath_s"].iloc[0])
@@ -437,14 +485,19 @@ def analyze_ttot_psd(
             )
 
             if not segment_bounds:
-                rejection_rows.append({
-                    "Window": window_key,
-                    "Period": period_name,
-                    "RejectionReason": f"period too short for one {segment_seconds:.0f}s segment ({period_duration:.1f}s after trimming)",
-                    "PeriodDuration_s": round(period_duration, 2),
-                    "RawBreaths": n_raw_breaths,
-                    "SegmentIndex": np.nan,
-                })
+                rejection_rows.append(
+                    {
+                        "Window": window_key,
+                        "Period": period_name,
+                        "RejectionReason": (
+                            f"period too short for one {segment_seconds:.0f}s segment "
+                            f"({period_duration:.1f}s after trimming)"
+                        ),
+                        "PeriodDuration_s": round(period_duration, 2),
+                        "RawBreaths": n_raw_breaths,
+                        "SegmentIndex": np.nan,
+                    }
+                )
                 continue
 
             total_candidate_segments += len(segment_bounds)
@@ -459,20 +512,25 @@ def analyze_ttot_psd(
                     resample_hz=resample_hz,
                 )
                 if resampled_df is None:
-                    rejection_rows.append({
-                        "Window": window_key,
-                        "Period": period_name,
-                        "RejectionReason": "resampling failed (insufficient coverage or NaN in spline)",
-                        "PeriodDuration_s": round(period_duration, 2),
-                        "RawBreaths": n_raw_breaths,
-                        "SegmentIndex": segment_idx,
-                    })
+                    rejection_rows.append(
+                        {
+                            "Window": window_key,
+                            "Period": period_name,
+                            "RejectionReason": (
+                                "resampling failed (insufficient coverage or "
+                                "nonphysical spline output)"
+                            ),
+                            "PeriodDuration_s": round(period_duration, 2),
+                            "RawBreaths": n_raw_breaths,
+                            "SegmentIndex": segment_idx,
+                        }
+                    )
                     continue
 
                 freq_hz, psd = _compute_welch_psd(
                     signal=resampled_df["Ttot_s"].to_numpy(dtype=float),
                     resample_hz=resample_hz,
-                    smooth_nperseg=smooth_nperseg,
+                    smooth_nperseg=primary_nperseg,
                     overlap_fraction=overlap_fraction,
                     nfft=nfft,
                 )
@@ -482,7 +540,16 @@ def analyze_ttot_psd(
                 if pooled_freq_hz is None:
                     pooled_freq_hz = freq_hz
 
+                comparison_freq_hz, comparison_psd = _compute_welch_psd(
+                    signal=resampled_df["Ttot_s"].to_numpy(dtype=float),
+                    resample_hz=resample_hz,
+                    smooth_nperseg=comparison_nperseg,
+                    overlap_fraction=overlap_fraction,
+                    nfft=nfft,
+                )
+
                 window_psd_lookup[window_key].append(psd)
+                comparison_window_psd_lookup[window_key].append(comparison_psd)
                 pooled_psd_arrays.append(psd)
 
                 trace_export = resampled_df.copy()
@@ -502,6 +569,17 @@ def analyze_ttot_psd(
                         }
                     )
                 )
+                comparison_segment_psd_frames.append(
+                    pd.DataFrame(
+                        {
+                            "Window": window_key,
+                            "Period": period_name,
+                            "SegmentIndex": segment_idx,
+                            "Frequency_Hz": comparison_freq_hz,
+                            "PSD": comparison_psd,
+                        }
+                    )
+                )
 
                 segment_rows.append(
                     {
@@ -514,7 +592,7 @@ def analyze_ttot_psd(
                         "RawBreaths": int(
                             (
                                 (trace_df["TimeOfBreath_s"] >= segment_start)
-                                & (trace_df["TimeOfBreath_s"] <= segment_end)
+                                & (trace_df["TimeOfBreath_s"] < segment_end)
                             ).sum()
                         ),
                         "ResampledPoints": int(len(resampled_df)),
@@ -537,6 +615,14 @@ def analyze_ttot_psd(
             metrics = _extract_psd_metrics(pooled_freq_hz, window_mean_psd, auc_band_hz)
             metrics["n_segments"] = len(window_psds)
             per_window_metrics[window_key] = metrics
+            comparison_per_window_psd_frames.append(
+                _mean_psd_table(
+                    key_name="Window",
+                    key_value=window_key,
+                    freq_hz=pooled_freq_hz,
+                    psd_arrays=comparison_window_psd_lookup[window_key],
+                )
+            )
 
     # --- Warn if fmax looks implausible ---
     # Nico found peaks at ~0.02 Hz and ~1 Hz in this mouse data.
@@ -555,10 +641,31 @@ def analyze_ttot_psd(
         )
 
     # --- Assemble DataFrames ---
-    segment_summary_df = pd.DataFrame(segment_rows)
+    segment_summary_df = pd.DataFrame(
+        segment_rows,
+        columns=[
+            "Window",
+            "Period",
+            "SegmentIndex",
+            "SegmentStart_s",
+            "SegmentEnd_s",
+            "SegmentDuration_s",
+            "RawBreaths",
+            "ResampledPoints",
+            "ResampleHz",
+            "MeanTtot_s",
+        ],
+    )
     per_segment_psd_df = (
         pd.concat(segment_psd_frames, ignore_index=True)
         if segment_psd_frames
+        else pd.DataFrame(
+            columns=["Window", "Period", "SegmentIndex", "Frequency_Hz", "PSD"]
+        )
+    )
+    comparison_per_segment_psd_df = (
+        pd.concat(comparison_segment_psd_frames, ignore_index=True)
+        if comparison_segment_psd_frames
         else pd.DataFrame(
             columns=["Window", "Period", "SegmentIndex", "Frequency_Hz", "PSD"]
         )
@@ -567,13 +674,24 @@ def analyze_ttot_psd(
         pd.concat(resampled_trace_frames, ignore_index=True)
         if resampled_trace_frames
         else pd.DataFrame(
-            columns=["Window", "Period", "SegmentIndex", "SegmentTime_s",
-                     "AbsoluteTime_s", "Ttot_s"]
+            columns=[
+                "Window",
+                "Period",
+                "SegmentIndex",
+                "SegmentTime_s",
+                "AbsoluteTime_s",
+                "Ttot_s",
+            ]
         )
     )
     per_window_psd_df = (
         pd.concat(per_window_psd_frames, ignore_index=True)
         if per_window_psd_frames
+        else pd.DataFrame(columns=["Window", "Frequency_Hz", "PSD"])
+    )
+    comparison_per_window_psd_df = (
+        pd.concat(comparison_per_window_psd_frames, ignore_index=True)
+        if comparison_per_window_psd_frames
         else pd.DataFrame(columns=["Window", "Frequency_Hz", "PSD"])
     )
     pooled_psd_df = (
@@ -583,30 +701,44 @@ def analyze_ttot_psd(
     )
 
     # --- Export CSVs ---
-    rejection_df = pd.DataFrame(rejection_rows) if rejection_rows else pd.DataFrame(
-        columns=["Window", "Period", "RejectionReason", "PeriodDuration_s", "RawBreaths", "SegmentIndex"]
+    rejection_df = (
+        pd.DataFrame(rejection_rows)
+        if rejection_rows
+        else pd.DataFrame(
+            columns=[
+                "Window",
+                "Period",
+                "RejectionReason",
+                "PeriodDuration_s",
+                "RawBreaths",
+                "SegmentIndex",
+            ]
+        )
     )
+    analysis_id = output_folder.parent.name
+    rejection_df.insert(0, "AnalysisID", analysis_id)
+    segment_summary_df.insert(0, "AnalysisID", analysis_id)
     rejection_df.to_csv(output_folder / "ttot_psd_rejected.csv", index=False)
-    log(f"Ttot PSD: {len(rejection_df)} periods/segments rejected — see ttot_psd_rejected.csv")
+    log(
+        f"Ttot PSD: {len(rejection_df)} periods/segments rejected — "
+        "see ttot_psd_rejected.csv"
+    )
 
-    if not segment_summary_df.empty:
-        segment_summary_df.to_csv(
-            output_folder / "ttot_psd_segment_summary.csv", index=False
-        )
-    if not per_segment_psd_df.empty:
-        per_segment_psd_df.to_csv(
-            output_folder / "ttot_psd_per_segment.csv", index=False
-        )
-    if not per_window_psd_df.empty:
-        per_window_psd_df.to_csv(
-            output_folder / "ttot_psd_per_window.csv", index=False
-        )
-    if not pooled_psd_df.empty:
-        pooled_psd_df.to_csv(output_folder / "ttot_psd_pooled.csv", index=False)
-    if not resampled_traces_df.empty:
-        resampled_traces_df.to_csv(
-            output_folder / "ttot_resampled_segments.csv", index=False
-        )
+    segment_summary_df.to_csv(
+        output_folder / "ttot_psd_segment_summary.csv", index=False
+    )
+    per_segment_psd_df.to_csv(output_folder / "ttot_psd_per_segment.csv", index=False)
+    comparison_per_segment_psd_df.to_csv(
+        output_folder / "ttot_psd_comparison_per_segment.csv", index=False
+    )
+    per_window_psd_df.to_csv(output_folder / "ttot_psd_per_window.csv", index=False)
+    comparison_per_window_psd_df.to_csv(
+        output_folder / "ttot_psd_comparison_per_window.csv", index=False
+    )
+    pooled_psd_df.to_csv(output_folder / "ttot_psd_pooled.csv", index=False)
+    resampled_traces_df.to_csv(
+        output_folder / "ttot_resampled_segments.csv", index=False
+    )
 
     kept_segments = len(segment_summary_df)
     log(
@@ -616,21 +748,26 @@ def analyze_ttot_psd(
 
     config = {
         "Metric": "Ttot",
-        "AnalysisID": output_folder.parent.name,
+        "AnalysisID": analysis_id,
         "ResampleHz": resample_hz,
         "SegmentDuration_s": segment_seconds,
         "EndTrimSamples": end_trim_samples,
-        "WelchSmoothNperseg": smooth_nperseg,
+        "WelchSmoothNperseg": primary_nperseg,
+        "WelchComparisonDivisor": welch_windows,
+        "WelchComparisonNperseg": comparison_nperseg,
+        "WelchComparisonNpersegFormula": "round(segment_points / divisor)",
         "WelchOverlapFraction": overlap_fraction,
+        "WelchWindow": DEFAULT_PSD_WINDOW,
+        "WelchWindowSampling": "symmetric",
+        "NominalWelchResolution_Hz": resample_hz / primary_nperseg,
+        "MeanCentered": True,
+        "Detrended": False,
         "NFFT": nfft,
         "AUCBandHz": auc_band_hz,
+        "AUCBandStatus": "Exploratory mouse adaptation",
     }
-    window_metrics_df = _metrics_table(per_window_metrics, resample_hz)
-    window_metrics_df.insert(0, "AnalysisID", output_folder.parent.name)
-    if not rejection_df.empty:
-        rejection_df.insert(0, "AnalysisID", output_folder.parent.name)
-    if not segment_summary_df.empty:
-        segment_summary_df.insert(0, "AnalysisID", output_folder.parent.name)
+    window_metrics_df = _metrics_table(per_window_metrics, resample_hz, primary_nperseg)
+    window_metrics_df.insert(0, "AnalysisID", analysis_id)
     window_metrics_df.to_csv(output_folder / "ttot_psd_window_metrics.csv", index=False)
     _export_psd_workbook(
         output_folder=output_folder,
@@ -639,6 +776,7 @@ def analyze_ttot_psd(
         rejection_df=rejection_df,
         segment_summary_df=segment_summary_df,
         per_window_psd_df=per_window_psd_df,
+        comparison_per_window_psd_df=comparison_per_window_psd_df,
         log=log,
     )
 
@@ -646,83 +784,15 @@ def analyze_ttot_psd(
         "config": config,
         "segment_summary": segment_summary_df,
         "per_segment_psd": per_segment_psd_df,
+        "comparison_per_segment_psd": comparison_per_segment_psd_df,
         "per_window_psd": per_window_psd_df,
+        "comparison_per_window_psd": comparison_per_window_psd_df,
         "pooled_psd": pooled_psd_df,
         "resampled_traces": resampled_traces_df,
         "per_window_metrics": per_window_metrics,
         "window_metrics": window_metrics_df,
         "rejection_log": rejection_df,
     }
-
-
-def _plot_psd_results_interactive_legacy(psd_results: dict[str, Any]) -> None:
-    """4-panel figure from analyze_ttot_psd output:
-      1. Mean PSD curves per window (linear scale — Nico uses linear)
-      2. fmax per window
-      3. PSDmax per window
-      4. AUC per window
-    """
-    per_window_psd_df: pd.DataFrame = psd_results.get("per_window_psd", pd.DataFrame())
-    per_window_metrics: dict[str, dict[str, float]] = psd_results.get(
-        "per_window_metrics", {}
-    )
-    auc_band = psd_results.get("config", {}).get("AUCBandHz", DEFAULT_PSD_AUC_BAND_HZ)
-    segment_seconds = psd_results.get("config", {}).get("SegmentDuration_s", DEFAULT_PSD_SEGMENT_SECONDS)
-
-    if per_window_psd_df.empty or not per_window_metrics:
-        return
-
-    window_keys = list(per_window_metrics.keys())
-    fmax_vals = [per_window_metrics[k]["fmax"] for k in window_keys]
-    psdmax_vals = [per_window_metrics[k]["PSDmax"] for k in window_keys]
-    auc_vals = [per_window_metrics[k]["AUC"] for k in window_keys]
-    x = np.arange(len(window_keys))
-
-    fig = plt.figure(figsize=(16, 10))
-    grid = fig.add_gridspec(2, 2)
-    ax_psd = fig.add_subplot(grid[0, 0])
-    ax_fmax = fig.add_subplot(grid[0, 1])
-    ax_psdmax = fig.add_subplot(grid[1, 0])
-    ax_auc = fig.add_subplot(grid[1, 1])
-
-    colors = plt.cm.tab10(np.linspace(0, 1, len(window_keys)))
-
-    for color, window_key in zip(colors, window_keys, strict=False):
-        subset = per_window_psd_df[per_window_psd_df["Window"] == window_key]
-        if subset.empty:
-            continue
-        n_seg = int(per_window_metrics[window_key].get("n_segments", 0))
-        ax_psd.plot(
-            subset["Frequency_Hz"],
-            subset["PSD"],
-            color=color,
-            alpha=0.8,
-            linewidth=1.0,
-            label=f"{window_key} (n={n_seg})",
-        )
-
-    ax_psd.set_title(f"Mean PSD per window — Ttot variability ({segment_seconds:.0f}s segments)")
-    ax_psd.set_xlabel("Frequency (Hz)")
-    ax_psd.set_ylabel("PSD (s²/Hz)")
-    ax_psd.legend(fontsize=6)
-
-    ax_fmax.plot(x, fmax_vals, marker="o")
-    ax_fmax.set_title("fmax per window")
-    ax_fmax.set_xlabel("Window index")
-    ax_fmax.set_ylabel("Frequency (Hz)")
-
-    ax_psdmax.plot(x, psdmax_vals, marker="o")
-    ax_psdmax.set_title("PSDmax per window")
-    ax_psdmax.set_xlabel("Window index")
-    ax_psdmax.set_ylabel("Power (s²/Hz)")
-
-    ax_auc.plot(x, auc_vals, marker="o")
-    ax_auc.set_title(f"AUC \u00b1{auc_band} Hz around fmax")
-    ax_auc.set_xlabel("Window index")
-    ax_auc.set_ylabel("Area (s²)")
-
-    plt.tight_layout()
-    plot_psd_results(psd_results, show=True)
 
 
 def plot_psd_results(
@@ -743,7 +813,29 @@ def plot_psd_results(
     )
 
     if per_window_psd_df.empty or not per_window_metrics:
-        log("Ttot PSD plot skipped: no per-window PSD results.")
+        log("Ttot PSD plot contains no valid per-window PSD results.")
+        if output_folder is not None:
+            output_folder.mkdir(parents=True, exist_ok=True)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.text(
+                0.5,
+                0.5,
+                "No valid PSD results for this run",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            ax.set_axis_off()
+            fig.savefig(
+                output_folder / "ttot_psd_summary.png",
+                dpi=300,
+                bbox_inches="tight",
+            )
+            fig.savefig(
+                output_folder / "ttot_psd_summary.svg",
+                bbox_inches="tight",
+            )
+            plt.close(fig)
         return
 
     window_keys = list(per_window_metrics.keys())

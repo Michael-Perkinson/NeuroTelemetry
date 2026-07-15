@@ -146,9 +146,7 @@ def export_data_to_excel(
         if psd_results:
             psd_per_window_df = psd_results.get("per_window_psd", pd.DataFrame())
             psd_pooled_df = psd_results.get("pooled_psd", pd.DataFrame())
-            psd_segment_summary_df = psd_results.get(
-                "segment_summary", pd.DataFrame()
-            )
+            psd_segment_summary_df = psd_results.get("segment_summary", pd.DataFrame())
 
         per_bin_df, per_period_df, per_window_df = build_export_data(all_metrics)
 
@@ -162,14 +160,20 @@ def export_data_to_excel(
             if session_overall_df is not None and not session_overall_df.empty:
                 # Title row, then df one row below
                 session_overall_df.to_excel(
-                    writer, sheet_name="Atmospheric Pressure", index=False, startrow=start_row + 1
+                    writer,
+                    sheet_name="Atmospheric Pressure",
+                    index=False,
+                    startrow=start_row + 1,
                 )
                 ws = writer.sheets["Atmospheric Pressure"]
                 ws.cell(row=start_row + 1, column=1).value = "Overall Session"
                 start_row += len(session_overall_df) + 3
             if session_binned_df is not None and not session_binned_df.empty:
                 session_binned_df.to_excel(
-                    writer, sheet_name="Atmospheric Pressure", index=False, startrow=start_row + 1
+                    writer,
+                    sheet_name="Atmospheric Pressure",
+                    index=False,
+                    startrow=start_row + 1,
                 )
                 ws = writer.sheets["Atmospheric Pressure"]
                 ws.cell(row=start_row + 1, column=1).value = "Binned"

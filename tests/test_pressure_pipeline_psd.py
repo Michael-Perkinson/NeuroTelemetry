@@ -1,24 +1,26 @@
 from __future__ import annotations
 
+import os
 import shutil
 import unittest
 from pathlib import Path
 from uuid import uuid4
 
+from src.controllers.pressure_controller import load_data, run_pressure_pipeline
 
-DATA_ROOT = Path("c:/Users/permi73p/Documents/Code/NeuroTelemetry/data/B5 night")
+DATA_ROOT = Path("data") / "B5 night"
 TELEMETRY_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 Ponemah.csv"
 EVENT_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 BORIS.csv"
 
 
 @unittest.skipUnless(
-    TELEMETRY_PATH.exists() and EVENT_PATH.exists(),
-    "Sample pressure dataset not available.",
+    os.getenv("RUN_PIPELINE_SMOKE") == "1"
+    and TELEMETRY_PATH.exists()
+    and EVENT_PATH.exists(),
+    "Set RUN_PIPELINE_SMOKE=1 and provide sample pressure data to run.",
 )
 class TestPressurePipelinePSD(unittest.TestCase):
     def test_pipeline_exports_psd_outputs(self) -> None:
-        from src.controllers.pressure_controller import load_data, run_pressure_pipeline
-
         telemetry_df, event_df = load_data(TELEMETRY_PATH, EVENT_PATH)
 
         base_dir = Path("test_outputs")

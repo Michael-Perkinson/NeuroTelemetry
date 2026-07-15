@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import pandas as pd
 
 REQUIRED_COLUMNS = {
@@ -9,6 +10,7 @@ REQUIRED_COLUMNS = {
 }
 
 MIN_DURATION = 30  # seconds
+MAX_BEHAVIOUR_TIME_SECONDS = 90 * 60
 
 
 def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
@@ -21,8 +23,7 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
         match_str_lower = match_str.lower()
         matches = [col for col in df.columns if match_str_lower in col]
         if not matches:
-            raise ValueError(
-                f"Missing column with '{match_str}' (case-insensitive)")
+            raise ValueError(f"Missing column with '{match_str}' (case-insensitive)")
         column_map[key] = matches[0]
 
     df["event"] = df[column_map["event"]]
@@ -41,8 +42,8 @@ def select_time_windows(
     reference_timestamp: pd.Timestamp,
 ) -> list[tuple[float, float]]:
     """Filter and extract time windows for a specific behavior."""
-    cutoff_seconds = (reference_timestamp +
-                      pd.Timedelta(minutes=90)).timestamp()
+    # Behaviour coordinates are relative to the processed telemetry timeline.
+    cutoff_seconds = MAX_BEHAVIOUR_TIME_SECONDS
     if behaviour_to_plot not in behaviour_data:
         return []
 
@@ -64,8 +65,9 @@ def structure_behaviour_events(
     """Convert the dataframe of events into a dictionary grouped by event name."""
     return {
         str(event): list(
-            group[["instance", "start", "end", "duration"]
-                  ].itertuples(index=False, name=None)
+            group[["instance", "start", "end", "duration"]].itertuples(
+                index=False, name=None
+            )
         )
         for event, group in event_df.groupby("event")
     }

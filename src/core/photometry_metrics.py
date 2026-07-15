@@ -8,12 +8,14 @@ def trim_to_window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame |
         return None
     return df.query("@start <= TimeSinceReference <= @end")
 
+
 def make_bin_edges(pre_min: int, post_min: int, bin_min: int) -> np.ndarray:
     """Return bin edges in seconds relative to 0 (injection time)."""
     bin_size_sec = bin_min * 60
     bin_start = -pre_min * 60
     bin_end = post_min * 60
     return np.arange(bin_start, bin_end + bin_size_sec, bin_size_sec)
+
 
 def bin_signal(
     signal_df: pd.DataFrame | None,
@@ -91,6 +93,10 @@ def combine_signal_bins(
     else:
         df["Act_Mean"] = np.nan
         df["Act_SEM"] = np.nan
+
+    for column in ["Temp_Mean", "Temp_SEM", "Act_Mean", "Act_SEM"]:
+        if column not in df:
+            df[column] = np.nan
 
     # Columns now carry bins aligned to injection (negative to positive)
     return df[

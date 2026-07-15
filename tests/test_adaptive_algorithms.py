@@ -50,7 +50,7 @@ class TestAdaptiveAlgorithms(unittest.TestCase):
     def test_first_derivative_matches_quadratic_slope(self) -> None:
         fs = 50.0
         t = np.arange(0.0, 2.0, 1.0 / fs)
-        signal = t**2
+        signal: np.ndarray = t**2
 
         derivative = compute_first_derivative(signal, fs)
 

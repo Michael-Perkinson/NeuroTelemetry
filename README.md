@@ -32,7 +32,7 @@ The application supports two analysis modes.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Windows or macOS
 
 ---
@@ -51,6 +51,16 @@ Install the project and dependencies:
 
 ```bash
 python -m pip install -e .
+```
+
+For development checks, install the optional tooling:
+
+```bash
+python -m pip install -e ".[dev]"
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy .
 ```
 
 If you use the optional clustering tuning script:

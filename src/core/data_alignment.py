@@ -138,7 +138,9 @@ def prepare_numerical_data(
 
     # Reorder columns: DateTime first, then Pressure, Temp, Activity
     available_signals = [
-        sig for sig in ["Pressure", "Temp", "Activity", "AtmPressure"] if sig in column_order
+        sig
+        for sig in ["Pressure", "Temp", "Activity", "AtmPressure"]
+        if sig in column_order
     ]
     new_order = [0] + [column_order[sig] for sig in available_signals]
     all_numerical_data = all_numerical_data.iloc[:, new_order]
@@ -217,7 +219,7 @@ def compute_time_offsets(
     removed_nan: float,
 ) -> tuple[float, float]:
     video_diff = (video_ref - probe_ref).total_seconds()
-    total = video_diff + removed_nan
+    total = video_diff - removed_nan
     return video_diff, total
 
 
@@ -235,18 +237,25 @@ def build_output_frames(
 ) -> dict[str, pd.DataFrame]:
     processed = {}
 
-    if "Pressure" not in numerical_data:
-        raise ValueError("Pressure channel missing; cannot build timeline.")
-
-    pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
-    prate = sample_rates["Pressure"]
-    processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
-
-    time_axis = processed["Pressure"]["TimeSinceReference"]
-
-    for sig in ["Temp", "Activity"]:
-        if sig in numerical_data:
-            processed[sig] = safe_interpolate(numerical_data, time_axis, sig)
+    if "Pressure" in numerical_data:
+        pressure_df = numerical_data[["TimeSinceReference", "Pressure"]].copy()
+        prate = sample_rates["Pressure"]
+        processed["Pressure"] = preprocess_pressure_data(pressure_df, prate)
+        time_axis = processed["Pressure"]["TimeSinceReference"]
+        for signal in ["Temp", "Activity"]:
+            if signal in numerical_data:
+                processed[signal] = safe_interpolate(numerical_data, time_axis, signal)
+    else:
+        optional_signals = [
+            signal
+            for signal in ("Temp", "Activity")
+            if signal in numerical_data and numerical_data[signal].notna().any()
+        ]
+        if not optional_signals:
+            raise ValueError("No supported telemetry channel available for timeline.")
+        for signal in optional_signals:
+            signal_df = numerical_data[["TimeSinceReference", signal]].dropna().copy()
+            processed[signal] = signal_df.reset_index(drop=True)
 
     # AtmPressure is 1 Hz — downsample to native rate using the recorded sample rate
     # Ponemah repeats the last value at 500 Hz rather than leaving NaNs, so dropna()
@@ -341,7 +350,10 @@ def align_and_clean_datetime(
 
     # Pick anchor column
     for candidate in ["Pressure", "Temp", "Activity"]:
-        if candidate in numerical_data.columns:
+        if (
+            candidate in numerical_data.columns
+            and numerical_data[candidate].notna().any()
+        ):
             anchor_col = candidate
             break
     else:

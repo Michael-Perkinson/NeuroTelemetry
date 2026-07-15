@@ -119,19 +119,18 @@ class TestEventFileParser(unittest.TestCase):
 
     def test_select_time_windows_filters_duration_cutoff_and_name(self) -> None:
         reference = pd.Timestamp("2025-01-01 00:00:00")
-        base = reference.timestamp()
         behaviour_data = {
             "Sleep": [
-                (1, base + 10.0, base + 50.0, 40.0),
-                (2, base + 100.0, base + 120.0, 20.0),
-                (3, base + 91.0 * 60.0, base + 92.0 * 60.0, 60.0),
+                (1, 10.0, 50.0, 40.0),
+                (2, 100.0, 120.0, 20.0),
+                (3, 91.0 * 60.0, 92.0 * 60.0, 60.0),
             ],
-            "Run": [(1, base + 5.0, base + 65.0, 60.0)],
+            "Run": [(1, 5.0, 65.0, 60.0)],
         }
 
         windows = select_time_windows("Sleep", behaviour_data, reference)
 
-        self.assertEqual(windows, [(base + 10.0, base + 50.0)])
+        self.assertEqual(windows, [(10.0, 50.0)])
         self.assertEqual(select_time_windows("Missing", behaviour_data, reference), [])
 
 

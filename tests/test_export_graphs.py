@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
-
 try:
     import plotly.graph_objects  # noqa: F401
 except ModuleNotFoundError:
@@ -42,10 +41,10 @@ except ModuleNotFoundError:
         def write_html(self, path):
             Path(path).write_text("<html></html>", encoding="utf-8")
 
-    graph_objects_module.Figure = _FakeFigure
-    graph_objects_module.Scatter = _FakeTrace
-    graph_objects_module.Bar = _FakeTrace
-    plotly_module.graph_objects = graph_objects_module
+    graph_objects_module.__dict__["Figure"] = _FakeFigure
+    graph_objects_module.__dict__["Scatter"] = _FakeTrace
+    graph_objects_module.__dict__["Bar"] = _FakeTrace
+    plotly_module.__dict__["graph_objects"] = graph_objects_module
     sys.modules["plotly"] = plotly_module
     sys.modules["plotly.graph_objects"] = graph_objects_module
 

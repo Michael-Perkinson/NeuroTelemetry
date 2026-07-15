@@ -17,7 +17,7 @@ exactly as if run from the GUI.
 
 Example batch_config.csv:
     telemetry_file,event_file,behaviour,probe_time,video_time,bin_size
-    C:/path/to/recording_1_ponemah.csv,C:/path/to/recording_1_boris.csv,Time spent sleeping,15/05/2024 10:46:38 AM,15/05/2024 10:46:46 AM,10
+    telemetry.csv,events.csv,Sleep,15/05/2024 10:46:38 AM,15/05/2024 10:46:46 AM,10
 """
 
 from __future__ import annotations
@@ -64,13 +64,13 @@ def run_batch(config_path: Path) -> None:
         video_time = str(row["video_time"]).strip()
         bin_size = int(row["bin_size"])
 
-        print(f"\n{'='*70}")
-        print(f"[{i+1}/{n_total}] {telemetry_path.name}")
+        print(f"\n{'=' * 70}")
+        print(f"[{i + 1}/{n_total}] {telemetry_path.name}")
         print(f"  Behaviour : {behaviour}")
         print(f"  Probe time: {probe_time}")
         print(f"  Video time: {video_time}")
         print(f"  Bin size  : {bin_size} s")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
 
         if not telemetry_path.exists():
             print(f"  ERROR: telemetry file not found: {telemetry_path}")
@@ -97,14 +97,16 @@ def run_batch(config_path: Path) -> None:
                 print(f"  Done. Output: {result['analysis_folder']}")
                 n_ok += 1
             else:
-                print("  WARNING: pipeline returned no result (no valid time windows?).")
+                print(
+                    "  WARNING: pipeline returned no result (no valid time windows?)."
+                )
                 n_fail += 1
         except Exception:
             print(f"  ERROR running pipeline for {telemetry_path.name}:")
             traceback.print_exc()
             n_fail += 1
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"Batch complete: {n_ok}/{n_total} succeeded, {n_fail} failed.")
 
 

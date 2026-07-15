@@ -42,13 +42,13 @@ def calculate_binned_period_metrics(
         bin_troughs = trough_times[bin_trough_mask]
 
         bin_temp = temp_data[
-            (temp_data["TimeSinceReference"] >= bin_start) &
-            (temp_data["TimeSinceReference"] < bin_end)
+            (temp_data["TimeSinceReference"] >= bin_start)
+            & (temp_data["TimeSinceReference"] < bin_end)
         ]
 
         bin_activity = activity_data[
-            (activity_data["TimeSinceReference"] >= bin_start) &
-            (activity_data["TimeSinceReference"] < bin_end)
+            (activity_data["TimeSinceReference"] >= bin_start)
+            & (activity_data["TimeSinceReference"] < bin_end)
         ]
 
         if len(bin_peaks) < 2 or len(bin_troughs) < 2:
@@ -342,19 +342,13 @@ def summarize_respiratory_cycles(
 
         for key in metrics:
             val = raw.get(key)
-            for key in metrics:
-                val = raw.get(key)
 
-                if key == "Freq":
-                    # Freq is expected to be a scalar
-                    if isinstance(val, (float | np.floating)) and not np.isnan(val):
-                        metrics[key].append(float(val))
-                else:
-                    # Other metrics are expected to be iterable (Series, ndarray, list)
-                    if val is not None:
-                        if isinstance(val, (pd.Series | np.ndarray | list | tuple)):
-                            if len(val) > 0:
-                                metrics[key].extend(map(float, val))
+            if key == "Freq":
+                if isinstance(val, (float | np.floating)) and not np.isnan(val):
+                    metrics[key].append(float(val))
+            elif isinstance(val, (pd.Series | np.ndarray | list | tuple)):
+                if len(val) > 0:
+                    metrics[key].extend(map(float, val))
 
     def agg(key: str) -> dict[str, float]:
         data = metrics[key]
@@ -388,7 +382,7 @@ def summarize_respiratory_cycles(
 def compute_atm_pressure_session_summary(
     atm_pressure_data: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Single-row overall atmospheric pressure stats (mean/SD/min/max) for the full recording."""
+    """Return overall atmospheric-pressure stats for the full recording."""
     if atm_pressure_data.empty or "AtmPressure" not in atm_pressure_data.columns:
         return pd.DataFrame(columns=["Mean", "SD", "Min", "Max"])
     vals = atm_pressure_data["AtmPressure"].dropna()
@@ -421,31 +415,49 @@ def compute_atm_pressure_time_bins(
         bin_end = float(bin_edges[i + 1])
 
         if atm_pressure_data.empty or "AtmPressure" not in atm_pressure_data.columns:
-            rows.append({
-                "Bin_Start_s": bin_start, "Bin_End_s": bin_end,
-                "Mean": np.nan, "SD": np.nan, "Min": np.nan, "Max": np.nan, "N": 0,
-            })
+            rows.append(
+                {
+                    "Bin_Start_s": bin_start,
+                    "Bin_End_s": bin_end,
+                    "Mean": np.nan,
+                    "SD": np.nan,
+                    "Min": np.nan,
+                    "Max": np.nan,
+                    "N": 0,
+                }
+            )
             continue
 
-        mask = (
-            (atm_pressure_data["TimeSinceReference"] >= bin_start) &
-            (atm_pressure_data["TimeSinceReference"] < bin_end)
+        upper_bound = (
+            atm_pressure_data["TimeSinceReference"] <= bin_end
+            if i == len(bin_edges) - 2
+            else atm_pressure_data["TimeSinceReference"] < bin_end
         )
+        mask = (atm_pressure_data["TimeSinceReference"] >= bin_start) & upper_bound
         vals = atm_pressure_data.loc[mask, "AtmPressure"].dropna()
         if vals.empty:
-            rows.append({
-                "Bin_Start_s": bin_start, "Bin_End_s": bin_end,
-                "Mean": np.nan, "SD": np.nan, "Min": np.nan, "Max": np.nan, "N": 0,
-            })
+            rows.append(
+                {
+                    "Bin_Start_s": bin_start,
+                    "Bin_End_s": bin_end,
+                    "Mean": np.nan,
+                    "SD": np.nan,
+                    "Min": np.nan,
+                    "Max": np.nan,
+                    "N": 0,
+                }
+            )
         else:
-            rows.append({
-                "Bin_Start_s": bin_start,
-                "Bin_End_s": bin_end,
-                "Mean": float(vals.mean()),
-                "SD": float(vals.std()),
-                "Min": float(vals.min()),
-                "Max": float(vals.max()),
-                "N": int(vals.count()),
-            })
+            rows.append(
+                {
+                    "Bin_Start_s": bin_start,
+                    "Bin_End_s": bin_end,
+                    "Mean": float(vals.mean()),
+                    "SD": float(vals.std()),
+                    "Min": float(vals.min()),
+                    "Max": float(vals.max()),
+                    "N": int(vals.count()),
+                }
+            )
 
     return pd.DataFrame(rows)

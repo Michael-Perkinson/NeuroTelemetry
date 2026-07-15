@@ -25,11 +25,15 @@ from src.core.period_analysis import (
     find_valid_periods,
 )
 from src.core.power_spectral_analysis import (
+    DEFAULT_PSD_AUC_BAND_HZ,
+    DEFAULT_PSD_END_TRIM_SAMPLES,
     DEFAULT_PSD_NFFT,
     DEFAULT_PSD_OVERLAP_FRACTION,
     DEFAULT_PSD_RESAMPLE_HZ,
     DEFAULT_PSD_SEGMENT_SECONDS,
+    DEFAULT_PSD_SMOOTH_NPERSEG,
     DEFAULT_PSD_WELCH_WINDOWS,
+    DEFAULT_PSD_WINDOW,
     analyze_ttot_psd,
     export_ttot_traces,
     plot_psd_results,
@@ -110,16 +114,26 @@ def run_pressure_pipeline(
         "PSDMetric": "Ttot",
         "PSDResampleHz": DEFAULT_PSD_RESAMPLE_HZ,
         "PSDSegmentDuration_s": DEFAULT_PSD_SEGMENT_SECONDS,
-        "PSDWelchWindows": DEFAULT_PSD_WELCH_WINDOWS,
+        "PSDEndTrimSamples": DEFAULT_PSD_END_TRIM_SAMPLES,
+        "PSDWelchSmoothNperseg": DEFAULT_PSD_SMOOTH_NPERSEG,
+        "PSDWelchComparisonDivisor": DEFAULT_PSD_WELCH_WINDOWS,
         "PSDWelchOverlapFraction": DEFAULT_PSD_OVERLAP_FRACTION,
+        "PSDWelchWindow": DEFAULT_PSD_WINDOW,
+        "PSDWelchWindowSampling": "symmetric",
+        "PSDNominalWelchResolutionHz": (
+            DEFAULT_PSD_RESAMPLE_HZ / DEFAULT_PSD_SMOOTH_NPERSEG
+        ),
+        "PSDMeanCentered": True,
+        "PSDDetrended": False,
         "PSDNFFT": DEFAULT_PSD_NFFT,
+        "PSDAUCBandHz": DEFAULT_PSD_AUC_BAND_HZ,
+        "PSDAUCBandStatus": "Exploratory mouse adaptation",
     }
 
     logs_folder = analysis_folder / "logs"
     logs_folder.mkdir(parents=True, exist_ok=True)
-    (logs_folder / f"analysis_config_{date_str}.json").write_text(
-        json.dumps(metadata, indent=2)
-    )
+    config_path = logs_folder / f"analysis_config_{date_str}.json"
+    config_path.write_text(json.dumps(metadata, indent=2))
 
     log("Preparing behavior data...")
     behaviour_data = structure_behaviour_events(event_df)
@@ -282,7 +296,7 @@ def run_pressure_pipeline(
         "summary": summary_data,
         "metrics": all_metrics,
         "psd": psd_results,
-        "analysis_folder": base_name,
+        "analysis_folder": analysis_folder,
         "time_windows": time_windows,
-        "config_path": f"{base_name}_analysis_config_{date_str}.json",
+        "config_path": config_path,
     }

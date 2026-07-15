@@ -1,9 +1,8 @@
 # gui_app.py
 
 import traceback
-from pathlib import Path
 from datetime import datetime
-
+from pathlib import Path
 
 from PySide6.QtCore import QDateTime, QSettings, Qt
 from PySide6.QtWidgets import (
@@ -62,8 +61,7 @@ class DataConfigGUI(QWidget):
         input_header.addWidget(input_title)
         self.main_layout.addLayout(input_header)
         self.telemetry_path = self.create_file_selector("Telemetry Data File")
-        self.secondary_path = self.create_file_selector(
-            "Behaviour or Photometry File")
+        self.secondary_path = self.create_file_selector("Behaviour or Photometry File")
 
         # --- Option panels stacked ---
         self.stack = QStackedWidget()
@@ -123,8 +121,7 @@ class DataConfigGUI(QWidget):
         entry.setProperty("readOnly", True)
         btn = QPushButton("Browse")
         btn.setFixedWidth(80)
-        entry.setSizePolicy(QSizePolicy.Policy.Expanding,
-                            QSizePolicy.Policy.Fixed)
+        entry.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         btn.clicked.connect(lambda: self.select_file(entry))
         layout.addWidget(lbl)
         layout.addWidget(entry)
@@ -198,7 +195,9 @@ class DataConfigGUI(QWidget):
         grid.addWidget(self.bin_size, 4, 1)
 
         # Atm. pressure summary export toggle (appears before its bin size)
-        self.export_atm_summary = QCheckBox("Export Atmospheric Pressure Session Summary")
+        self.export_atm_summary = QCheckBox(
+            "Export Atmospheric Pressure Session Summary"
+        )
         self.export_atm_summary.setChecked(True)
         grid.addWidget(self.export_atm_summary, 5, 0, 1, 2)
 
@@ -344,7 +343,8 @@ class DataConfigGUI(QWidget):
             QMessageBox.warning(
                 self,
                 "Unrecognized File",
-                "Could not detect file type.\nPlease choose a valid Behaviour or Photometry file.",
+                "Could not detect file type.\n"
+                "Please choose a valid Behaviour or Photometry file.",
             )
 
     def log(self, msg):
@@ -356,6 +356,7 @@ class DataConfigGUI(QWidget):
     def run_analysis(self):
         self.save_settings()
         self.run_button.setEnabled(False)
+        result = None
         try:
             telemetry_path = Path(self.telemetry_path.text())
             if not telemetry_path.exists():
@@ -373,7 +374,7 @@ class DataConfigGUI(QWidget):
                 )
 
                 self.log("Running photometry analysis...")
-                run_photometry_pipeline(
+                result = run_photometry_pipeline(
                     telemetry_df=telemetry_df,
                     photometry_df=photometry_df,
                     photometry_align_time=self.photometry_start_time.dateTime().toString(
@@ -389,11 +390,10 @@ class DataConfigGUI(QWidget):
 
             elif self.file_mode == "behaviour":
                 self.log("Loading telemetry and behaviour data...")
-                telemetry_df, behaviour_df = load_data(
-                    telemetry_path, second_path)
+                telemetry_df, behaviour_df = load_data(telemetry_path, second_path)
 
                 self.log("Running behaviour analysis...")
-                run_pressure_pipeline(
+                result = run_pressure_pipeline(
                     telemetry_df=telemetry_df,
                     event_df=behaviour_df,
                     behaviour_to_plot=self.behaviour_input.text(),
@@ -411,15 +411,19 @@ class DataConfigGUI(QWidget):
                 )
 
             else:
-                raise ValueError(
-                    "Unknown file type. Must be Behaviour or Photometry.")
+                raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
 
         except Exception as e:
             self.log(f"Error: {e}")
             self.log(traceback.format_exc())
             QMessageBox.critical(self, "Error", str(e))
 
+        else:
+            if result is None:
+                self.log("Analysis finished without results.")
+            else:
+                self.log("Analysis complete.")
+
         finally:
             self.run_button.setEnabled(True)
-            self.log("Analysis complete.")
             self.log("=" * 40)

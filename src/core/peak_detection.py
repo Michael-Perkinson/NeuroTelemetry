@@ -63,24 +63,30 @@ def find_shoulders(
 
 
 def find_peaks_and_shoulders(time, pressure, dvdt):
-    time_win = np.asarray(time.values)
+    time_win = np.asarray(time.values, dtype=float)
     pressure_win = pressure
     dvdt_win = dvdt
 
-    fs = 500
+    time_steps = np.diff(time_win)
+    valid_steps = time_steps[np.isfinite(time_steps) & (time_steps > 0)]
+    if valid_steps.size == 0:
+        raise ValueError("Cannot infer pressure sample rate from timestamps.")
+    fs = 1.0 / float(np.median(valid_steps))
 
-    peaks, props = find_peaks(-pressure_win, prominence=3, distance=int(0.05 * fs))
+    peaks, props = find_peaks(
+        -pressure_win,
+        prominence=3,
+        distance=max(1, round(0.05 * fs)),
+    )
 
     # Adaptive envelope filter
     win_s = 20  # 20-s window
-    win = max(5, int(win_s * fs))
+    win = max(5, round(win_s * fs))
     s = pd.Series(pressure_win)
 
-    upper_env = s.rolling(
-        win, center=True, min_periods=1).quantile(0.80).to_numpy()
-    lower_env = s.rolling(
-        win, center=True, min_periods=1).quantile(0.20).to_numpy()
-    local_amp = np.maximum(upper_env - lower_env, 1e-6) # avoid zero
+    upper_env = s.rolling(win, center=True, min_periods=1).quantile(0.80).to_numpy()
+    lower_env = s.rolling(win, center=True, min_periods=1).quantile(0.20).to_numpy()
+    local_amp = np.maximum(upper_env - lower_env, 1e-6)  # avoid zero
     # trough depth vs local upper
     depth = upper_env[peaks] - pressure_win[peaks]
 

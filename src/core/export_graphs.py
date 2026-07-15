@@ -267,10 +267,20 @@ def create_interactive_plot(
         )
 
     # --- Atmospheric Pressure ---
-    if atm_pressure_data is not None and not atm_pressure_data.empty and "AtmPressure" in atm_pressure_data.columns:
+    if (
+        atm_pressure_data is not None
+        and not atm_pressure_data.empty
+        and "AtmPressure" in atm_pressure_data.columns
+    ):
         atm_filtered = atm_pressure_data[
-            (atm_pressure_data["TimeSinceReference"] >= main_df["TimeSinceReference"].min()) &
-            (atm_pressure_data["TimeSinceReference"] <= main_df["TimeSinceReference"].max())
+            (
+                atm_pressure_data["TimeSinceReference"]
+                >= main_df["TimeSinceReference"].min()
+            )
+            & (
+                atm_pressure_data["TimeSinceReference"]
+                <= main_df["TimeSinceReference"].max()
+            )
         ]
         fig.add_trace(
             go.Scatter(
@@ -299,8 +309,17 @@ def create_interactive_plot(
         title=title,
         xaxis_title="Time (minutes)",
         yaxis=dict(title=main_signal_label, color=main_color, range=[ymin, ymax]),
-        yaxis2=dict(title="Temperature (°C)", overlaying="y", side="right", color="red"),
-        yaxis3=dict(title="Atm. Pressure (mmHg)", overlaying="y", side="right", anchor="free", position=1.0, color="steelblue"),
+        yaxis2=dict(
+            title="Temperature (°C)", overlaying="y", side="right", color="red"
+        ),
+        yaxis3=dict(
+            title="Atm. Pressure (mmHg)",
+            overlaying="y",
+            side="right",
+            anchor="free",
+            position=1.0,
+            color="steelblue",
+        ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=600,
         hovermode="x unified",
@@ -395,10 +414,20 @@ def create_static_plot(
         )
 
     # --- Atmospheric Pressure ---
-    if atm_pressure_data is not None and not atm_pressure_data.empty and "AtmPressure" in atm_pressure_data.columns:
+    if (
+        atm_pressure_data is not None
+        and not atm_pressure_data.empty
+        and "AtmPressure" in atm_pressure_data.columns
+    ):
         atm_filtered = atm_pressure_data[
-            (atm_pressure_data["TimeSinceReference"] >= main_df["TimeSinceReference"].min()) &
-            (atm_pressure_data["TimeSinceReference"] <= main_df["TimeSinceReference"].max())
+            (
+                atm_pressure_data["TimeSinceReference"]
+                >= main_df["TimeSinceReference"].min()
+            )
+            & (
+                atm_pressure_data["TimeSinceReference"]
+                <= main_df["TimeSinceReference"].max()
+            )
         ]
         ax3 = ax1.twinx()
         ax3.spines["right"].set_position(("axes", 1.12))

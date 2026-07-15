@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import __version__
 from src.core.adaptive_algorithms import compute_time_window, get_time_bounds
 from src.core.data_alignment import extract_and_process_data, prepare_raw_data
 from src.core.data_file_parser import (
@@ -92,7 +93,7 @@ def run_photometry_pipeline(
 
     metadata = {
         "RunDate": date_str,
-        "PipelineVersion": "1.0.0",
+        "PipelineVersion": __version__,
         "TelemetryFile": str(telemetry_path),
         "InjectionTime_s": injection_sec,
         "PreWindow_min": pre_min,

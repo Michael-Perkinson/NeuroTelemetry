@@ -12,7 +12,7 @@ from src.core.peak_detection import analyse_peaks, find_peaks_and_shoulders
 class TestFindPeaksAndShoulders(unittest.TestCase):
     def test_find_peaks_and_shoulders_detects_pressure_troughs(self) -> None:
         time = pd.Series(np.arange(250, dtype=float) / 500.0)
-        pressure = np.zeros(250, dtype=float)
+        pressure: np.ndarray = np.zeros(250, dtype=float)
         pressure[[50, 125, 200]] = -8.0
         dvdt = np.gradient(pressure)
 
@@ -21,12 +21,15 @@ class TestFindPeaksAndShoulders(unittest.TestCase):
         self.assertEqual(peaks.tolist(), [50, 125, 200])
         self.assertEqual(len(shoulders), 3)
         self.assertTrue(
-            all(shoulder <= peak for shoulder, peak in zip(shoulders, peaks))
+            all(
+                shoulder <= peak
+                for shoulder, peak in zip(shoulders, peaks, strict=False)
+            )
         )
 
     def test_find_peaks_and_shoulders_filters_shallow_troughs(self) -> None:
         time = pd.Series(np.arange(150, dtype=float) / 500.0)
-        pressure = np.zeros(150, dtype=float)
+        pressure: np.ndarray = np.zeros(150, dtype=float)
         pressure[50] = -8.0
         pressure[100] = -0.5
         dvdt = np.gradient(pressure)

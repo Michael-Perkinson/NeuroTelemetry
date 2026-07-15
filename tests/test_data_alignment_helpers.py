@@ -16,8 +16,8 @@ from src.core.data_alignment import (
     compute_time_offsets,
     parse_numerical_data,
     parse_reference_timestamps,
-    prepare_raw_data,
     prepare_numerical_data,
+    prepare_raw_data,
     preprocess_pressure_data,
     safe_interpolate,
     split_data,
@@ -64,13 +64,16 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             cleaned.columns.tolist(),
             ["DateTime", "Pressure", "Temp", "Activity", "AtmPressure"],
         )
-        self.assertEqual(cleaned.iloc[0].tolist(), [
-            "01/11/2025 05:05:09 PM",
-            "1",
-            "36",
-            "5",
-            "100",
-        ])
+        self.assertEqual(
+            cleaned.iloc[0].tolist(),
+            [
+                "01/11/2025 05:05:09 PM",
+                "1",
+                "36",
+                "5",
+                "100",
+            ],
+        )
         self.assertEqual(
             sample_rates,
             {"Pressure": 500.0, "Temp": 10.0, "Activity": 20.0, "AtmPressure": 1.0},
@@ -135,7 +138,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         self.assertEqual(
             compute_time_offsets(video, probe, removed_nan=2.5),
-            (90.0, 92.5),
+            (90.0, 87.5),
         )
 
     def test_parse_reference_timestamps_uses_day_first_format(self) -> None:
@@ -196,7 +199,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
                 datetime(2025, 1, 1),
             )
 
-        with self.assertRaisesRegex(ValueError, "No valid Pressure"):
+        with self.assertRaisesRegex(ValueError, "No usable signal"):
             align_and_clean_datetime(
                 pd.DataFrame(
                     {
@@ -252,12 +255,14 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             [100.0, 101.0, 101.0],
         )
 
-    def test_build_output_frames_requires_pressure_channel(self) -> None:
-        with self.assertRaisesRegex(ValueError, "Pressure channel missing"):
-            build_output_frames(
-                pd.DataFrame({"TimeSinceReference": [0.0], "Temp": [36.0]}),
-                {},
-            )
+    def test_build_output_frames_supports_temperature_without_pressure(self) -> None:
+        processed = build_output_frames(
+            pd.DataFrame({"TimeSinceReference": [0.0], "Temp": [36.0]}),
+            {},
+        )
+
+        self.assertNotIn("Pressure", processed)
+        self.assertEqual(processed["Temp"]["Temp"].tolist(), [36.0])
 
     def test_preprocess_pressure_data_adds_derived_pressure_columns(self) -> None:
         time = np.arange(0.0, 2.0, 0.002)

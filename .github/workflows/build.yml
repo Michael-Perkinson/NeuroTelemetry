@@ -20,13 +20,11 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install Pyside6
-          pip install pyinstaller
+          python -m pip install . pyinstaller
           
       - name: Build Windows EXE
         run: pyinstaller --onefile --windowed --name "PressureAnalyzer" --hidden-import=PySide6.QtWidgets --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtCore main.py
@@ -47,16 +45,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt || true
-          pip install py2app
+          python -m pip install . pyinstaller
           brew install create-dmg
 
       - name: Build macOS .app
-        run: python setup.py py2app
+        run: pyinstaller --windowed --name "PressureAnalyzer" main.py
+
+      - name: Stage macOS app
+        run: |
+          mkdir -p dist/dmg-root
+          cp -R dist/PressureAnalyzer.app dist/dmg-root/
 
       - name: Create macOS .dmg
         run: |
@@ -67,7 +69,7 @@ jobs:
             --icon-size 100 \
             --app-drop-link 400 150 \
             dist/PressureAnalyzer.dmg \
-            dist/PressureAnalyzer.app
+            dist/dmg-root
 
       - name: Upload macOS .dmg
         uses: actions/upload-artifact@v4
