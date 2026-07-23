@@ -172,41 +172,36 @@ class DataConfigGUI(QWidget):
         # row 0, col 0, span across 2 columns
         grid.addWidget(title, 0, 0, 1, 2)
 
-        # Probe + video start
-        probe_lbl = QLabel("Probe Start Time")
-        self.probe_time = self.make_datetime_edit()
-        grid.addWidget(probe_lbl, 1, 0)
-        grid.addWidget(self.probe_time, 1, 1)
-
-        video_lbl = QLabel("Video Start Time")
+        # Absolute timestamp corresponding to video elapsed time zero
+        video_lbl = QLabel("Video Start Date/Time")
         self.video_time = self.make_datetime_edit()
-        grid.addWidget(video_lbl, 2, 0)
-        grid.addWidget(self.video_time, 2, 1)
+        grid.addWidget(video_lbl, 1, 0)
+        grid.addWidget(self.video_time, 1, 1)
 
         # Behaviour input
         beh_lbl = QLabel("Behaviour to Plot")
         self.behaviour_input = QLineEdit("Time spent sleeping")
-        grid.addWidget(beh_lbl, 3, 0)
-        grid.addWidget(self.behaviour_input, 3, 1)
+        grid.addWidget(beh_lbl, 2, 0)
+        grid.addWidget(self.behaviour_input, 2, 1)
 
         # Respiratory bin size
         bin_lbl = QLabel("Respiratory Bin Size (s)")
         self.bin_size = self.create_spin_box(10)
-        grid.addWidget(bin_lbl, 4, 0)
-        grid.addWidget(self.bin_size, 4, 1)
+        grid.addWidget(bin_lbl, 3, 0)
+        grid.addWidget(self.bin_size, 3, 1)
 
         # Atm. pressure summary export toggle (appears before its bin size)
         self.export_atm_summary = QCheckBox(
             "Export Atmospheric Pressure Session Summary"
         )
         self.export_atm_summary.setChecked(True)
-        grid.addWidget(self.export_atm_summary, 5, 0, 1, 2)
+        grid.addWidget(self.export_atm_summary, 4, 0, 1, 2)
 
         # Atm. pressure bin size (hidden when checkbox is unchecked)
         self.atm_bin_lbl = QLabel("Atm. Pressure Bin Size (s)")
         self.atm_bin_size = self.create_spin_box(300)
-        grid.addWidget(self.atm_bin_lbl, 6, 0)
-        grid.addWidget(self.atm_bin_size, 6, 1)
+        grid.addWidget(self.atm_bin_lbl, 5, 0)
+        grid.addWidget(self.atm_bin_size, 5, 1)
 
         self.export_atm_summary.toggled.connect(self._toggle_atm_bin_visibility)
 
@@ -382,7 +377,7 @@ class DataConfigGUI(QWidget):
                 result = run_photometry_pipeline(
                     telemetry_df=telemetry_df,
                     photometry_df=photometry_df,
-                    photometry_align_time=self.photometry_start_time.dateTime().toString(
+                    photometry_start_time=self.photometry_start_time.dateTime().toString(
                         "dd/MM/yyyy hh:mm:ss AP"
                     ),
                     injection_sec=self.injection_sec.value(),
@@ -402,9 +397,6 @@ class DataConfigGUI(QWidget):
                     telemetry_df=telemetry_df,
                     event_df=behaviour_df,
                     behaviour_to_plot=self.behaviour_input.text(),
-                    probe_time=self.probe_time.dateTime().toString(
-                        "dd/MM/yyyy hh:mm:ss AP"
-                    ),
                     video_time=self.video_time.dateTime().toString(
                         "dd/MM/yyyy hh:mm:ss AP"
                     ),
@@ -413,6 +405,7 @@ class DataConfigGUI(QWidget):
                     atm_bin_size_sec=self.atm_bin_size.value(),
                     export_atm_summary=self.export_atm_summary.isChecked(),
                     log_callback=self.log,
+                    event_path=second_path,
                 )
 
             else:

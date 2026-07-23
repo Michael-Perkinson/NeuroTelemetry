@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from src.core.adaptive_algorithms import get_time_bounds
 from src.core.data_alignment import extract_and_process_data
 from src.core.data_file_parser import retrieve_telemetry_data, safe_get_df
 from src.core.event_file_parser import (
+    classify_behaviour_windows,
     read_and_process_event_file,
     select_time_windows,
     structure_behaviour_events,
@@ -78,13 +80,14 @@ def run_pressure_pipeline(
     telemetry_df: pd.DataFrame,
     event_df: pd.DataFrame,
     behaviour_to_plot: str,
-    probe_time: str,
     video_time: str,
     bin_size_sec: int,
     output_path: Path,
     atm_bin_size_sec: int = 300,
     export_atm_summary: bool = True,
     log_callback=None,
+    analysis_root: Path | None = None,
+    event_path: Path | None = None,
 ) -> dict | None:
     """Run full analysis pipeline for pressure telemetry aligned to behaviors."""
 
@@ -96,18 +99,21 @@ def run_pressure_pipeline(
 
     start_time = datetime.now()
     file_base = output_path.stem
-    analysis_folder = (
-        output_path.parent / "extracted_data" / f"{file_base}_PressureAnalysis"
-    )
+    output_root = analysis_root or (output_path.parent / "extracted_data")
+    analysis_folder = output_root / f"{file_base}_PressureAnalysis"
     analysis_folder.mkdir(parents=True, exist_ok=True)
 
     date_str = start_time.strftime("%Y%m%d_%H%M%S")
 
     metadata = {
+        "ConfigSchemaVersion": 3,
         "RunDate": date_str,
         "BehaviourToPlot": behaviour_to_plot,
-        "ProbeTime": probe_time,
+        "VideoStartTime": video_time,
         "VideoTime": video_time,
+        "AlignmentMethod": "absolute_video_start",
+        "AnalysisStatus": "started",
+        "TelemetryFile": str(output_path.resolve()),
         "BinSize_s": bin_size_sec,
         "AtmPressureBinSize_s": atm_bin_size_sec,
         "ExportAtmPressureSummary": export_atm_summary,
@@ -129,6 +135,8 @@ def run_pressure_pipeline(
         "PSDAUCBandHz": DEFAULT_PSD_AUC_BAND_HZ,
         "PSDAUCBandStatus": "Exploratory mouse adaptation",
     }
+    if event_path is not None:
+        metadata["EventFile"] = str(event_path.resolve())
 
     logs_folder = analysis_folder / "logs"
     logs_folder.mkdir(parents=True, exist_ok=True)
@@ -142,8 +150,8 @@ def run_pressure_pipeline(
     processed_data = extract_and_process_data(
         telemetry_df,
         behaviour_data,
-        probe_time,
         video_time,
+        timeline_origin="alignment",
     )
 
     pressure_data = safe_get_df(processed_data, "Pressure")
@@ -154,14 +162,96 @@ def run_pressure_pipeline(
     log(f"AtmPressure data: {n_atm} rows, empty={atm_pressure_data.empty}")
 
     new_reference_timestamp = processed_data["ReferenceTimestamp"]
+    metadata["TelemetryReferenceTime"] = pd.Timestamp(
+        new_reference_timestamp
+    ).isoformat()
+
+    min_time, max_time = get_time_bounds(pressure_data)
+    coverage = classify_behaviour_windows(
+        behaviour_to_plot,
+        processed_data["Behaviours"],
+        telemetry_bounds=(min_time, max_time),
+        telemetry_intervals=processed_data["PressureAnalyzableIntervals"],
+    )
+    coverage_counts = Counter(record["status"] for record in coverage)
+    metadata["TelemetryFirstValidTimestamp"] = pd.Timestamp(
+        processed_data["FirstValidTimestamp"]
+    ).isoformat()
+    metadata["TelemetryCoverageStart_s"] = float(min_time)
+    metadata["TelemetryCoverageEnd_s"] = float(max_time)
+    metadata["TelemetryContinuousCoverageIntervals_s"] = processed_data[
+        "PressureCoverageIntervals"
+    ]
+    metadata["TelemetryCoverageMaxGap_s"] = processed_data[
+        "PressureCoverageMaxGapSeconds"
+    ]
+    metadata["TelemetryAnalyzableIntervals_s"] = processed_data[
+        "PressureAnalyzableIntervals"
+    ]
+    metadata["PressureFilterEdgeMargin_s"] = processed_data[
+        "PressureFilterEdgeMarginSeconds"
+    ]
+    metadata["BehaviourCoverageCounts"] = dict(coverage_counts)
+    metadata["BehaviourCoverage"] = coverage
+    config_path.write_text(json.dumps(metadata, indent=2))
+
+    if coverage:
+        log(
+            "Behavior coverage: "
+            + ", ".join(
+                f"{status}={coverage_counts.get(status, 0)}"
+                for status in (
+                    "fully_covered",
+                    "partially_covered",
+                    "unavailable",
+                    "filtered",
+                )
+            )
+        )
+        for record in coverage:
+            if record["status"] != "fully_covered":
+                start_label = (
+                    "missing" if record["start"] is None else f"{record['start']:.3f}s"
+                )
+                end_label = (
+                    "missing" if record["end"] is None else f"{record['end']:.3f}s"
+                )
+                log(
+                    f"Behavior instance {record['instance']} excluded: "
+                    f"{record['status']} ({record['reason']}; "
+                    f"{start_label} to {end_label})."
+                )
+    elif behaviour_to_plot not in processed_data["Behaviours"]:
+        available = sorted(processed_data["Behaviours"])
+        metadata["BehaviourSelectionStatus"] = "label_not_found"
+        metadata["AvailableBehaviours"] = available
+        config_path.write_text(json.dumps(metadata, indent=2))
+        log(
+            f"Behavior label {behaviour_to_plot!r} was not found. "
+            f"Available labels: {available or 'none'}."
+        )
 
     log("Selecting time windows...")
     time_windows = select_time_windows(
-        behaviour_to_plot, processed_data["Behaviours"], new_reference_timestamp
+        behaviour_to_plot,
+        processed_data["Behaviours"],
+        new_reference_timestamp,
+        telemetry_bounds=(min_time, max_time),
+        telemetry_intervals=processed_data["PressureAnalyzableIntervals"],
     )
 
     if not time_windows:
-        log("No valid time windows found.")
+        metadata["AnalysisStatus"] = "no_eligible_windows"
+        metadata["CompletedAt"] = datetime.now().isoformat()
+        config_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        no_results_path = analysis_folder / f"NO_RESULTS_{date_str}.txt"
+        no_results_path.write_text(
+            "No fully covered eligible behavior windows were available.\n"
+            f"See logs/{config_path.name} for coverage details.\n",
+            encoding="utf-8",
+        )
+        log("No fully covered eligible time windows found.")
+        log(f"No-results marker: {no_results_path}")
         return None
 
     log(f"Found {len(time_windows)} time windows.")
@@ -219,8 +309,6 @@ def run_pressure_pipeline(
             bin_size_sec=atm_bin_size_sec,
         )
         log(f"Atm overall: {atm_overall_df.shape}, binned: {atm_binned_df.shape}")
-
-    min_time, max_time = get_time_bounds(pressure_data)
 
     summary_data = create_summary_data(
         valid_peak_times_all, updated_valid_periods, time_windows
@@ -292,11 +380,16 @@ def run_pressure_pipeline(
 
     log(f"Total runtime: {(datetime.now() - start_time).total_seconds():.1f}s")
 
+    metadata["AnalysisStatus"] = "complete"
+    metadata["CompletedAt"] = datetime.now().isoformat()
+    config_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+
     return {
         "summary": summary_data,
         "metrics": all_metrics,
         "psd": psd_results,
         "analysis_folder": analysis_folder,
         "time_windows": time_windows,
+        "behaviour_coverage": coverage,
         "config_path": config_path,
     }

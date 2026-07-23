@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 import pandas as pd
 import pytest
 
 from src.core.event_file_parser import (
+    classify_behaviour_windows,
     read_and_process_event_file,
     select_time_windows,
     structure_behaviour_events,
@@ -93,3 +95,81 @@ def test_select_time_windows_returns_empty_for_missing_behaviour() -> None:
         )
         == []
     )
+
+
+def test_classify_behaviour_windows_reports_telemetry_coverage() -> None:
+    behaviour_data = {
+        "sleep": [
+            (1, 0.0, 40.0, 40.0),
+            (2, -20.0, 20.0, 40.0),
+            (3, 80.0, 120.0, 40.0),
+            (4, -100.0, -50.0, 50.0),
+            (5, 150.0, 200.0, 50.0),
+            (6, 20.0, 25.0, 5.0),
+            (7, float("nan"), 40.0, 40.0),
+        ]
+    }
+
+    coverage = classify_behaviour_windows(
+        "sleep", behaviour_data, telemetry_bounds=(-10.0, 100.0)
+    )
+
+    assert [record["status"] for record in coverage] == [
+        "fully_covered",
+        "partially_covered",
+        "partially_covered",
+        "unavailable",
+        "unavailable",
+        "filtered",
+        "filtered",
+    ]
+    assert select_time_windows(
+        "sleep",
+        behaviour_data,
+        pd.Timestamp("2025-01-01"),
+        telemetry_bounds=(-10.0, 100.0),
+    ) == [(0.0, 40.0)]
+
+
+def test_classify_behaviour_windows_detects_internal_telemetry_gap() -> None:
+    behaviour_data = {
+        "sleep": [
+            (1, 10.0, 40.0, 30.0),
+            (2, 80.0, 120.0, 40.0),
+            (3, 40.0, 80.0, 40.0),
+        ]
+    }
+    intervals = [(0.0, 50.0), (100.0, 150.0)]
+
+    coverage = classify_behaviour_windows(
+        "sleep",
+        behaviour_data,
+        telemetry_bounds=(0.0, 150.0),
+        telemetry_intervals=intervals,
+    )
+
+    assert [record["status"] for record in coverage] == [
+        "fully_covered",
+        "partially_covered",
+        "partially_covered",
+    ]
+    assert select_time_windows(
+        "sleep",
+        behaviour_data,
+        pd.Timestamp("2025-01-01"),
+        telemetry_bounds=(0.0, 150.0),
+        telemetry_intervals=intervals,
+    ) == [(10.0, 40.0)]
+
+
+def test_classify_behaviour_windows_filters_malformed_values() -> None:
+    coverage = classify_behaviour_windows(
+        "sleep",
+        cast(
+            Any,
+            {"sleep": [(1, pd.NA, 40.0, 40.0), (2, "bad", 40.0, 40.0)]},
+        ),
+    )
+
+    assert [record["status"] for record in coverage] == ["filtered", "filtered"]
+    assert all(record["start"] is None for record in coverage)

@@ -1,4 +1,6 @@
+import math
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -28,9 +30,9 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
 
     df["event"] = df[column_map["event"]]
     df["instance"] = df.groupby("event").cumcount() + 1
-    df["start"] = df[column_map["start"]]
-    df["end"] = df[column_map["stop"]]
-    df["duration"] = df[column_map["duration"]]
+    df["start"] = pd.to_numeric(df[column_map["start"]], errors="coerce")
+    df["end"] = pd.to_numeric(df[column_map["stop"]], errors="coerce")
+    df["duration"] = pd.to_numeric(df[column_map["duration"]], errors="coerce")
     df = df.sort_values(["event", "instance"]).reset_index(drop=True)
 
     return df[["event", "instance", "start", "end", "duration"]]
@@ -40,23 +42,93 @@ def select_time_windows(
     behaviour_to_plot: str,
     behaviour_data: dict[str, list[tuple[int, float, float, float]]],
     reference_timestamp: pd.Timestamp,
+    telemetry_bounds: tuple[float, float] | None = None,
+    telemetry_intervals: list[tuple[float, float]] | None = None,
 ) -> list[tuple[float, float]]:
-    """Filter and extract time windows for a specific behavior."""
-    # Behaviour coordinates are relative to the processed telemetry timeline.
-    cutoff_seconds = MAX_BEHAVIOUR_TIME_SECONDS
-    if behaviour_to_plot not in behaviour_data:
-        return []
-
-    behaviour_list = behaviour_data[behaviour_to_plot]
-    filtered = [
-        (inst, start, end, dur)
-        for inst, start, end, dur in behaviour_list
-        if start <= cutoff_seconds
-        and end <= cutoff_seconds
-        and pd.notna(dur)
-        and dur >= MIN_DURATION
+    """Return fully covered, eligible windows for a specific behavior."""
+    del reference_timestamp  # retained for compatibility with existing callers
+    coverage = classify_behaviour_windows(
+        behaviour_to_plot,
+        behaviour_data,
+        telemetry_bounds=telemetry_bounds,
+        telemetry_intervals=telemetry_intervals,
+    )
+    return [
+        (record["start"], record["end"])
+        for record in coverage
+        if record["status"] == "fully_covered"
     ]
-    return [(start, end) for _, start, end, _ in filtered]
+
+
+def classify_behaviour_windows(
+    behaviour_to_plot: str,
+    behaviour_data: dict[str, list[tuple[int, float, float, float]]],
+    telemetry_bounds: tuple[float, float] | None = None,
+    telemetry_intervals: list[tuple[float, float]] | None = None,
+) -> list[dict[str, Any]]:
+    """Classify behavior windows against telemetry coverage on video time."""
+    instances = behaviour_data.get(behaviour_to_plot, [])
+    if telemetry_bounds is None:
+        telemetry_start, telemetry_end = float("-inf"), float("inf")
+    else:
+        telemetry_start, telemetry_end = map(float, telemetry_bounds)
+
+    if telemetry_intervals is None:
+        intervals = [(telemetry_start, telemetry_end)]
+    else:
+        intervals = [
+            (float(interval_start), float(interval_end))
+            for interval_start, interval_end in telemetry_intervals
+        ]
+
+    def finite_float(value: object) -> float | None:
+        try:
+            converted = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return converted if math.isfinite(converted) else None
+
+    records: list[dict[str, Any]] = []
+    for instance, start, end, duration in instances:
+        start_value = finite_float(start)
+        end_value = finite_float(end)
+        duration_value = finite_float(duration)
+        record: dict[str, Any] = {
+            "instance": int(instance),
+            "start": start_value,
+            "end": end_value,
+            "duration": duration_value,
+        }
+
+        if start_value is None or end_value is None:
+            status, reason = "filtered", "missing start or end"
+        elif duration_value is None or duration_value < MIN_DURATION:
+            status, reason = "filtered", f"duration below {MIN_DURATION}s"
+        elif start_value > end_value:
+            status, reason = "filtered", "start is after end"
+        elif (
+            start_value > MAX_BEHAVIOUR_TIME_SECONDS
+            or end_value > MAX_BEHAVIOUR_TIME_SECONDS
+        ):
+            status, reason = "filtered", "outside the 90-minute analysis limit"
+        elif any(
+            interval_start <= start_value and end_value <= interval_end
+            for interval_start, interval_end in intervals
+        ):
+            status, reason = "fully_covered", "fully covered by telemetry"
+        elif any(
+            end_value >= interval_start and start_value <= interval_end
+            for interval_start, interval_end in intervals
+        ):
+            status, reason = "partially_covered", "crosses a telemetry boundary or gap"
+        else:
+            status, reason = "unavailable", "outside continuous telemetry coverage"
+
+        record["status"] = status
+        record["reason"] = reason
+        records.append(record)
+
+    return records
 
 
 def structure_behaviour_events(

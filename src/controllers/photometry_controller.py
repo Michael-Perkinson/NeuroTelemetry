@@ -61,7 +61,7 @@ def load_photometry_data(
 def run_photometry_pipeline(
     telemetry_df: pd.DataFrame,
     photometry_df: pd.DataFrame,
-    photometry_align_time: str,
+    photometry_start_time: str,
     injection_sec: int,
     pre_min: int,
     post_min: int,
@@ -92,6 +92,7 @@ def run_photometry_pipeline(
     date_str = start_time.strftime("%Y%m%d_%H%M%S")
 
     metadata = {
+        "ConfigSchemaVersion": 2,
         "RunDate": date_str,
         "PipelineVersion": __version__,
         "TelemetryFile": str(telemetry_path),
@@ -99,7 +100,8 @@ def run_photometry_pipeline(
         "PreWindow_min": pre_min,
         "PostWindow_min": post_min,
         "BinSize_min": bin_min,
-        "AlignTime": photometry_align_time,
+        "PhotometryStartTime": photometry_start_time,
+        "AlignTime": photometry_start_time,
     }
 
     (analysis_folder / f"analysis_config_{date_str}.json").write_text(
@@ -111,8 +113,8 @@ def run_photometry_pipeline(
     processed_telemetry = extract_and_process_data(
         telemetry_df,
         behaviour_data=None,
-        probe_date_time=photometry_align_time,
-        alignment_date_time=photometry_align_time,
+        alignment_date_time=photometry_start_time,
+        timeline_origin="alignment",
     )
     temp_data = pd.DataFrame(processed_telemetry.get("Temp"))
     activity_data = pd.DataFrame(processed_telemetry.get("Activity"))

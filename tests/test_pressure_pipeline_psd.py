@@ -33,7 +33,6 @@ class TestPressurePipelinePSD(unittest.TestCase):
                 telemetry_df=telemetry_df,
                 event_df=event_df,
                 behaviour_to_plot="Time spent sleeping",
-                probe_time="01/11/2025 05:05:09 PM",
                 video_time="01/11/2025 04:59:59 PM",
                 bin_size_sec=10,
                 output_path=output_path,

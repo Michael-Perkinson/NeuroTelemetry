@@ -11,7 +11,6 @@ from src.controllers.photometry_controller import (
     run_photometry_pipeline,
 )
 
-
 DATA_ROOT = Path("data") / "Andys"
 PHOTOMETRY_PATH = DATA_ROOT / "2025-07-16 VP3 MET DIESTRUS SALINE_Data OPTION 2 INC.csv"
 TELEMETRY_PATH = DATA_ROOT / "2025-07-16 VP3 Saline TEMP and ACT ascii.csv"
@@ -26,7 +25,7 @@ def _run_pipeline(output_path: Path, log_callback) -> dict | None:
     return run_photometry_pipeline(
         telemetry_df=telemetry_df,
         photometry_df=photometry_df,
-        photometry_align_time="16/07/2025 11:08:00 AM",
+        photometry_start_time="16/07/2025 11:08:00 AM",
         injection_sec=2820,
         pre_min=30,
         post_min=360,

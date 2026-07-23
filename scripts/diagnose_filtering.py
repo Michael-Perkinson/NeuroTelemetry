@@ -5,10 +5,12 @@ Shows: Raw → Highpass → Lowpass → Savitzky-Golay (SmoothedPressure)
 Does NOT modify any existing pipeline code.
 
 Usage:
-    python scripts/diagnose_filtering.py <telemetry_csv> [--seconds 10] [--start 0]
+    python scripts/diagnose_filtering.py <telemetry_csv> <event_csv> <video_time>
+        [--seconds 10] [--start 0]
 
 Example:
     python scripts/diagnose_filtering.py "X:/path/to/Ponemah.csv"
+        "X:/path/to/BORIS.csv" "15/05/2024 10:46:46 AM"
         --seconds 10 --start 60
 """
 
@@ -43,7 +45,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("telemetry_csv", type=Path)
     parser.add_argument("event_csv", type=Path)
-    parser.add_argument("probe_time", type=str)
     parser.add_argument("video_time", type=str)
     parser.add_argument(
         "--seconds", type=float, default=10.0, help="Window to display (s)"
@@ -65,7 +66,10 @@ def main():
     behaviour_data = structure_behaviour_events(event_df)
 
     processed = extract_and_process_data(
-        telemetry_df, behaviour_data, args.probe_time, args.video_time
+        telemetry_df,
+        behaviour_data,
+        args.video_time,
+        timeline_origin="first_valid",
     )
     pressure_data = processed["Pressure"]
 

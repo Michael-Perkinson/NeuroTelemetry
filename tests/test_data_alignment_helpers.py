@@ -8,19 +8,20 @@ import numpy as np
 import pandas as pd
 
 from src.core.data_alignment import (
-    _decide_dayfirst_from_probe,
+    _decide_dayfirst_from_reference,
     _to_datetime_with_ms,
     adjust_behaviours,
     align_and_clean_datetime,
     build_output_frames,
-    compute_time_offsets,
+    continuous_signal_coverage,
     parse_numerical_data,
-    parse_reference_timestamps,
+    parse_reference_timestamp,
     prepare_numerical_data,
     prepare_raw_data,
     preprocess_pressure_data,
     safe_interpolate,
     split_data,
+    trim_coverage_intervals,
 )
 
 
@@ -91,17 +92,32 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected rate format"):
             prepare_numerical_data(meta, numerical)
 
-    def test_decide_dayfirst_uses_probe_reference_when_ambiguous(self) -> None:
-        probe = datetime(2025, 11, 1, 17, 5, 9)
+    def test_decide_dayfirst_uses_alignment_reference_when_ambiguous(self) -> None:
+        reference = datetime(2025, 11, 1, 17, 5, 9)
 
-        self.assertFalse(_decide_dayfirst_from_probe("11/01/2025 05:05:09 PM", probe))
-        self.assertTrue(_decide_dayfirst_from_probe("01/11/2025 05:05:09 PM", probe))
+        self.assertFalse(
+            _decide_dayfirst_from_reference("11/01/2025 05:05:09 PM", reference)
+        )
+        self.assertTrue(
+            _decide_dayfirst_from_reference("01/11/2025 05:05:09 PM", reference)
+        )
 
     def test_decide_dayfirst_uses_greater_than_twelve_rule(self) -> None:
-        probe = datetime(2025, 1, 1, 0, 0, 0)
+        reference = datetime(2025, 1, 1, 0, 0, 0)
 
-        self.assertTrue(_decide_dayfirst_from_probe("25/04/2025 01:00:00 PM", probe))
-        self.assertFalse(_decide_dayfirst_from_probe("04/25/2025 01:00:00 PM", probe))
+        self.assertTrue(
+            _decide_dayfirst_from_reference("25/04/2025 01:00:00 PM", reference)
+        )
+        self.assertFalse(
+            _decide_dayfirst_from_reference("04/25/2025 01:00:00 PM", reference)
+        )
+
+    def test_decide_dayfirst_uses_nearest_date_across_midnight(self) -> None:
+        reference = datetime(2025, 1, 31, 23, 59, 50)
+
+        self.assertTrue(
+            _decide_dayfirst_from_reference("01/02/2025 12:00:10 AM", reference)
+        )
 
     def test_to_datetime_with_ms_reconstructs_missing_subseconds(self) -> None:
         series = pd.Series(
@@ -118,6 +134,21 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(parsed.iloc[1], pd.Timestamp("2025-11-01 17:05:09.500000"))
         self.assertEqual(parsed.iloc[2], pd.Timestamp("2025-11-01 17:05:10"))
 
+    def test_to_datetime_with_ms_preserves_visible_timestamp_gaps(self) -> None:
+        series = pd.Series(
+            [
+                "01/11/2025 05:05:09 PM",
+                "01/11/2025 05:05:09 PM",
+                "01/11/2025 05:05:12 PM",
+                "01/11/2025 05:05:12 PM",
+            ]
+        )
+
+        parsed = _to_datetime_with_ms(series, dayfirst=True, sample_rate_hz=2.0)
+
+        self.assertEqual(parsed.iloc[1], pd.Timestamp("2025-11-01 17:05:09.500"))
+        self.assertEqual(parsed.iloc[2], pd.Timestamp("2025-11-01 17:05:12"))
+
     def test_to_datetime_with_ms_parses_ms_before_ampm(self) -> None:
         series = pd.Series(["01/11/2025 05:05:09.123 PM"])
 
@@ -132,23 +163,10 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         self.assertEqual(parsed.iloc[0], pd.Timestamp("2025-11-01 17:05:09.250"))
 
-    def test_compute_time_offsets_combines_offsets(self) -> None:
-        probe = datetime(2025, 1, 1, 12, 0, 0)
-        video = datetime(2025, 1, 1, 12, 1, 30)
+    def test_parse_reference_timestamp_uses_day_first_format(self) -> None:
+        reference = parse_reference_timestamp("01/11/2025 04:59:59 PM")
 
-        self.assertEqual(
-            compute_time_offsets(video, probe, removed_nan=2.5),
-            (90.0, 87.5),
-        )
-
-    def test_parse_reference_timestamps_uses_day_first_format(self) -> None:
-        probe, align = parse_reference_timestamps(
-            "01/11/2025 05:05:09 PM",
-            "01/11/2025 04:59:59 PM",
-        )
-
-        self.assertEqual(probe, datetime(2025, 11, 1, 17, 5, 9))
-        self.assertEqual(align, datetime(2025, 11, 1, 16, 59, 59))
+        self.assertEqual(reference, datetime(2025, 11, 1, 16, 59, 59))
 
     def test_parse_numerical_data_coerces_signal_columns_and_parses_time(self) -> None:
         numerical = pd.DataFrame(
@@ -183,20 +201,15 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             }
         )
 
-        cleaned, new_ref, removed = align_and_clean_datetime(
-            numerical,
-            datetime(2025, 1, 1, 12, 0, 1),
-        )
+        cleaned, new_ref = align_and_clean_datetime(numerical)
 
         self.assertEqual(new_ref, datetime(2025, 1, 1, 12, 0, 1))
-        self.assertEqual(removed, 0.0)
         self.assertEqual(cleaned["Pressure"].tolist(), [1.0, 2.0])
 
     def test_align_and_clean_datetime_rejects_missing_or_invalid_signal(self) -> None:
         with self.assertRaisesRegex(ValueError, "No usable signal"):
             align_and_clean_datetime(
                 pd.DataFrame({"DateTime": [pd.Timestamp("2025-01-01")]}),
-                datetime(2025, 1, 1),
             )
 
         with self.assertRaisesRegex(ValueError, "No usable signal"):
@@ -207,19 +220,6 @@ class TestDataAlignmentHelpers(unittest.TestCase):
                         "Pressure": [np.nan],
                     }
                 ),
-                datetime(2025, 1, 1),
-            )
-
-    def test_align_and_clean_datetime_rejects_out_of_range_reference(self) -> None:
-        with self.assertRaisesRegex(ValueError, "not within data range"):
-            align_and_clean_datetime(
-                pd.DataFrame(
-                    {
-                        "DateTime": [pd.Timestamp("2025-01-01 12:00:00")],
-                        "Pressure": [1.0],
-                    }
-                ),
-                datetime(2025, 1, 1, 12, 1, 0),
             )
 
     def test_build_output_frames_interpolates_optional_channels_and_atm(self) -> None:
@@ -265,7 +265,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(processed["Temp"]["Temp"].tolist(), [36.0])
 
     def test_preprocess_pressure_data_adds_derived_pressure_columns(self) -> None:
-        time = np.arange(0.0, 2.0, 0.002)
+        time = np.arange(0.0, 4.0, 0.002)
         pressure = 1.0 + 0.1 * np.sin(2.0 * np.pi * 2.0 * time)
         pressure[10] = np.nan
         pressure_df = pd.DataFrame(
@@ -280,7 +280,11 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertIn("PressureHighpass", processed.columns)
         self.assertIn("SmoothedPressure", processed.columns)
         self.assertIn("dvdt", processed.columns)
-        self.assertFalse(processed["SmoothedPressure"].isna().any())
+        inner = processed.loc[
+            processed["TimeSinceReference"].between(1.0, 1.0), "SmoothedPressure"
+        ]
+        self.assertFalse(inner.isna().any())
+        self.assertTrue(processed["SmoothedPressure"].iloc[0:100].isna().all())
 
     def test_safe_interpolate_maps_signal_onto_requested_time_axis(self) -> None:
         source = pd.DataFrame(
@@ -308,7 +312,20 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(interpolated.columns.tolist(), ["TimeSinceReference", "Temp"])
         self.assertTrue(interpolated.empty)
 
-    def test_adjust_behaviours_offsets_times_and_drops_negative_windows(self) -> None:
+    def test_safe_interpolate_does_not_extrapolate_signal(self) -> None:
+        source = pd.DataFrame(
+            {"TimeSinceReference": [10.0, 20.0], "Temp": [36.0, 38.0]}
+        )
+
+        interpolated = safe_interpolate(
+            source, pd.Series([0.0, 10.0, 15.0, 20.0, 30.0]), "Temp"
+        )
+
+        np.testing.assert_allclose(
+            interpolated["Temp"], [np.nan, 36.0, 37.0, 38.0, np.nan], equal_nan=True
+        )
+
+    def test_adjust_behaviours_offsets_times_and_retains_negative_windows(self) -> None:
         behaviour_data = {
             "Sleep": [
                 (1, -5.0, 10.0, 15.0),
@@ -318,8 +335,47 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         adjusted = adjust_behaviours(behaviour_data, total_time_diff=-8.0)
 
-        self.assertEqual(adjusted["Sleep"], [(2, 2.0, 12.0, 10.0)])
+        self.assertEqual(
+            adjusted["Sleep"],
+            [(1, -13.0, 2.0, 15.0), (2, 2.0, 12.0, 10.0)],
+        )
         self.assertEqual(behaviour_data["Sleep"][1], (2, 10.0, 20.0, 10.0))
+
+    def test_continuous_signal_coverage_splits_long_pressure_outages(self) -> None:
+        numerical = pd.DataFrame(
+            {
+                "TimeSinceReference": [0.0, 0.5, 1.0, 2.5, 3.0, 4.5],
+                "Pressure": [1.0, np.nan, 1.1, np.nan, 1.2, 1.3],
+            }
+        )
+
+        intervals = continuous_signal_coverage(
+            numerical, "Pressure", max_gap_seconds=1.0
+        )
+
+        self.assertEqual(intervals, [(0.0, 1.0), (3.0, 3.0), (4.5, 4.5)])
+
+    def test_trim_coverage_intervals_reserves_filter_edges(self) -> None:
+        self.assertEqual(
+            trim_coverage_intervals([(0.0, 10.0), (20.0, 21.0)], margin_seconds=1.0),
+            [(1.0, 9.0)],
+        )
+
+    def test_preprocess_pressure_data_does_not_filter_across_long_gap(self) -> None:
+        first_time = np.arange(0.0, 3.0, 0.002)
+        second_time = np.arange(6.0, 9.0, 0.002)
+        time = np.concatenate([first_time, second_time])
+        pressure = 1.0 + 0.1 * np.sin(2.0 * np.pi * 2.0 * time)
+
+        processed = preprocess_pressure_data(
+            pd.DataFrame({"TimeSinceReference": time, "Pressure": pressure}),
+            pressure_sample_rate=500.0,
+        )
+
+        edge = processed["TimeSinceReference"].between(6.0, 6.9)
+        interior = processed["TimeSinceReference"].between(7.0, 7.9)
+        self.assertTrue(processed.loc[edge, "SmoothedPressure"].isna().all())
+        self.assertFalse(processed.loc[interior, "SmoothedPressure"].isna().any())
 
     def test_prepare_raw_data_aligns_signals_to_injection_time(self) -> None:
         photometry = pd.DataFrame(
@@ -346,6 +402,26 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(raw["TimeRel"].tolist(), [-10.0, 0.0, 10.0])
         np.testing.assert_allclose(raw["Temp"], [36.0, 37.0, 38.0])
         np.testing.assert_allclose(raw["Activity"], [0.0, 5.0, 10.0])
+
+    def test_prepare_raw_data_does_not_extrapolate_telemetry(self) -> None:
+        photometry = pd.DataFrame(
+            {
+                "TimeSinceReference": [90.0, 100.0, 110.0, 120.0, 130.0],
+                "dFoF_465": [1.0, 2.0, 3.0, 4.0, 5.0],
+            }
+        )
+        temp = pd.DataFrame(
+            {
+                "TimeSinceReference": [100.0, 120.0],
+                "Temp": [36.0, 38.0],
+            }
+        )
+
+        raw = prepare_raw_data(photometry, temp, None, injection_sec=110.0)
+
+        np.testing.assert_allclose(
+            raw["Temp"], [np.nan, 36.0, 37.0, 38.0, np.nan], equal_nan=True
+        )
 
 
 if __name__ == "__main__":

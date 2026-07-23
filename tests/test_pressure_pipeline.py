@@ -9,7 +9,6 @@ import pytest
 
 from src.controllers.pressure_controller import load_data, run_pressure_pipeline
 
-
 DATA_ROOT = Path("data") / "Day 2 (25-04-24) Pro"
 TELEMETRY_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 Ponemah.csv"
 EVENT_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 BORIS.csv"
@@ -22,7 +21,6 @@ def _run_pipeline(output_path: Path, log_callback) -> dict | None:
         telemetry_df=telemetry_df,
         event_df=event_df,
         behaviour_to_plot="Time spent sleeping",
-        probe_time="01/11/2025 05:05:09 PM",
         video_time="01/11/2025 04:59:59 PM",
         bin_size_sec=10,
         output_path=output_path,
@@ -46,9 +44,7 @@ def test_pressure_pipeline_smoke(local_tmpdir: Path) -> None:
     assert "psd" in results
 
     analysis_folder = (
-        output_path.parent
-        / "extracted_data"
-        / f"{output_path.stem}_PressureAnalysis"
+        output_path.parent / "extracted_data" / f"{output_path.stem}_PressureAnalysis"
     )
     assert analysis_folder.exists()
     assert results["analysis_folder"] == analysis_folder

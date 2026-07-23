@@ -194,6 +194,7 @@ def export_data_to_excel(
 
     except Exception as e:
         log_error(f"Export failed: {e}")
+        raise
 
 
 def export_binned_data_to_excel(

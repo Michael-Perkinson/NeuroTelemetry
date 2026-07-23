@@ -22,6 +22,21 @@ The application supports two analysis modes.
 - Exports PSD metrics, spectra, rejection/QC data, comparison spectra, and summary figures
 - Exports a Session Summary sheet with overall and binned atmospheric pressure metrics (mean, SD, min, max) across the full recording
 
+The pressure timeline uses the absolute video start as `0 s`. Telemetry samples
+before the video therefore have negative times, and BORIS event times remain in
+their original video-relative coordinates. The pipeline does not snap an event
+to the nearest telemetry sample.
+
+Only behaviour windows at least 30 seconds long, within the 90-minute analysis
+limit, and fully covered by telemetry are analysed. Partially covered and
+unavailable windows are excluded and reported in the run log and
+`analysis_config_<timestamp>.json`. The full telemetry session is still retained
+for signal processing, the full-recording plot, and session atmospheric-pressure
+summaries. Pressure outages longer than one second split the continuous coverage
+range and are filtered as separate segments. A one-second margin at each segment
+edge is also excluded to avoid filter-edge contamination, so a behaviour
+crossing an outage or margin is not treated as fully covered.
+
 ### Injection‑aligned photometry analysis
 
 - Aligns photometry signals to an injection or event time
@@ -87,12 +102,14 @@ This launches the graphical interface.
 
 ## Batch Runs
 
-To run multiple pressure analyses without the GUI, create a CSV with one row per recording:
+To run multiple pressure analyses without the GUI, create an Excel `.xlsx` file
+with one row per recording. Native Excel files are recommended because dates are
+stored independently of their display formatting.
 
-```csv
-telemetry_file,event_file,behaviour,probe_time,video_time,bin_size
-C:/path/to/recording_1_ponemah.csv,C:/path/to/recording_1_boris.csv,Time spent sleeping,15/05/2024 10:46:38 AM,15/05/2024 10:46:46 AM,10
-C:/path/to/recording_2_ponemah.csv,C:/path/to/recording_2_boris.csv,Time spent sleeping,12/01/2025 09:01:53 AM,12/01/2025 09:01:48 AM,10
+```text
+telemetry_file,event_file,behaviour,video_time,bin_size
+C:/path/to/recording_1_ponemah.csv,C:/path/to/recording_1_boris.csv,Time spent sleeping,15/05/2024 10:46:46 AM,10
+C:/path/to/recording_2_ponemah.csv,C:/path/to/recording_2_boris.csv,Time spent sleeping,12/01/2025 09:01:48 AM,10
 ```
 
 | Column | Description |
@@ -100,17 +117,48 @@ C:/path/to/recording_2_ponemah.csv,C:/path/to/recording_2_boris.csv,Time spent s
 | `telemetry_file` | Full path to the Ponemah `.csv` or `.ascii` file |
 | `event_file` | Full path to the BORIS `.csv` file |
 | `behaviour` | Behaviour label to analyse — must match the BORIS label exactly |
-| `probe_time` | Probe reference timestamp (e.g. `15/05/2024 10:46:38 AM`) |
-| `video_time` | Video reference timestamp (e.g. `15/05/2024 10:46:46 AM`) |
+| `video_time` | Absolute date/time at video elapsed time zero (e.g. `15/05/2024 10:46:46 AM`) |
 | `bin_size` | Bin size in seconds (integer, e.g. `10`) |
 
-Then run:
+Older batch files containing a `probe_time` column remain valid. The batch runner
+warns once and ignores that legacy column because telemetry timestamps now define
+the telemetry reference.
+
+Enter `video_time` as a real Excel date/time including seconds. The cell may use
+any display format; showing seconds (for example `dd/mm/yyyy hh:mm:ss AM/PM`) is
+recommended only so they can be checked visually. ISO text such as
+`2024-04-25T10:07:06` is also accepted. CSV configs remain supported for backward
+compatibility, but `.xlsx` avoids Excel reinterpreting timestamp text whenever a
+CSV is opened or saved.
+
+From the repository root (the folder containing this `README.md`), run the
+script using its full relative path:
 
 ```bash
-python scripts/batch_run.py batch_config.csv
+python scripts/batch_run.py batch_config.xlsx
 ```
 
-Outputs are written beside each telemetry file under `extracted_data/<recording_name>_PressureAnalysis/`, identical to a GUI run.
+The batch runner is inside the `scripts` folder, so do **not** run
+`python batch_run.py` from the repository root. If your config file is elsewhere,
+provide its path, for example:
+
+```bash
+python scripts/batch_run.py C:/path/to/batch_config.xlsx
+```
+
+By default, outputs are written beside each telemetry file under
+`extracted_data/<recording_name>_PressureAnalysis/`, identical to a GUI run. To
+put every per-recording result folder under one chosen directory, run:
+
+```bash
+python scripts/batch_run.py batch_config.xlsx --output-dir C:/path/to/batch-results
+```
+
+Each recording normally gets `<telemetry-name>_PressureAnalysis`. If any two
+rows would resolve to the same analysis folder (including repeated analyses of
+one telemetry file), the batch stops with a non-zero exit status before analysis
+instead of allowing results to overwrite each other. Rename those telemetry
+files or use separate batch runs/output directories.
 
 Failed recordings are skipped and reported at the end — the rest of the batch still completes.
 
@@ -129,7 +177,8 @@ Pressure analysis is written beside the telemetry file under
 - `PSD/` with the standalone `ttot_psd_summary.xlsx` workbook, machine-readable CSV exports, rejected-segment details, and PNG/SVG QC figures
 - `Ttot_Traces/` with breath-by-breath Ttot traces for each valid behavioural window
 - Interactive HTML plots and static SVG figures for full recordings and behavioural windows
-- `logs/analysis_config_<timestamp>.json` describing the run and PSD parameters
+- `logs/analysis_config_<timestamp>.json` describing alignment, telemetry
+  coverage, per-window inclusion status, and PSD parameters
 
 Photometry analysis is written under
 `extracted_data/<recording_name>_PhotometryAnalysis/` and contains:

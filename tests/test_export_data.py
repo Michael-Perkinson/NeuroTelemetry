@@ -1,17 +1,30 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
 from src.core.export_data import (
     build_export_data,
     create_summary_data,
+    export_data_to_excel,
     insert_blank_rows,
 )
 
 
 class TestExportData(unittest.TestCase):
+    def test_export_data_to_excel_propagates_write_failure(self) -> None:
+        with (
+            patch(
+                "src.core.export_data.pd.ExcelWriter",
+                side_effect=PermissionError("workbook is locked"),
+            ),
+            self.assertRaisesRegex(PermissionError, "locked"),
+        ):
+            export_data_to_excel([], {}, Path("unused"))
+
     def test_create_summary_data_counts_peaks_inside_valid_periods(self) -> None:
         summary = create_summary_data(
             valid_peak_times_all=[1.0, 2.0, 3.0, 12.0],

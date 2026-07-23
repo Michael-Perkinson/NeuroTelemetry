@@ -4,7 +4,7 @@ Does NOT modify any pipeline code.
 
 Usage:
     python scripts/compare_lowpass.py <telemetry_csv> <event_csv>
-        <probe_time> <video_time> [--seconds 10] [--start 120]
+        <video_time> [--seconds 10] [--start 120]
 """
 
 from __future__ import annotations
@@ -36,12 +36,15 @@ def _lowpass(data, cutoff, fs, order=3):
     return filtfilt(b, a, data)
 
 
-def load_pressure(telemetry_csv, event_csv, probe_time, video_time):
+def load_pressure(telemetry_csv, event_csv, video_time):
     telemetry_df = retrieve_telemetry_data(Path(telemetry_csv))
     event_df = read_and_process_event_file(Path(event_csv))
     behaviour_data = structure_behaviour_events(event_df)
     processed = extract_and_process_data(
-        telemetry_df, behaviour_data, probe_time, video_time
+        telemetry_df,
+        behaviour_data,
+        video_time,
+        timeline_origin="first_valid",
     )
     return processed["Pressure"]
 
@@ -50,7 +53,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("telemetry", type=Path)
     parser.add_argument("event", type=Path)
-    parser.add_argument("probe", type=str)
     parser.add_argument("video", type=str)
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--start", type=float, default=120.0)
@@ -61,7 +63,7 @@ def main():
     rows = 1 + len(CUTOFFS)
 
     print(f"Loading: {args.telemetry.name}")
-    pdata = load_pressure(args.telemetry, args.event, args.probe, args.video)
+    pdata = load_pressure(args.telemetry, args.event, args.video)
 
     raw = pdata["Pressure"].to_numpy(dtype=float)
     i0 = int(args.start * fs)

@@ -1,7 +1,7 @@
 import re
 from copy import deepcopy
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,9 @@ from src.core.adaptive_algorithms import (
 )
 from src.core.data_file_parser import detect_skip_rows
 from src.core.logger import log_info, log_warning
+
+PRESSURE_COVERAGE_MAX_GAP_SECONDS = 1.0
+PRESSURE_FILTER_EDGE_MARGIN_SECONDS = 1.0
 
 
 def _to_datetime_with_ms(
@@ -46,37 +49,50 @@ def _to_datetime_with_ms(
         fmt = "%d/%m/%Y %I:%M:%S %p.%f" if dayfirst else "%m/%d/%Y %I:%M:%S %p.%f"
         return pd.to_datetime(s, format=fmt, errors="raise")
 
-    # Case 3: reconstruct
+    # Case 3: reconstruct sub-second positions while preserving visible jumps.
     fmt0 = "%d/%m/%Y %I:%M:%S %p" if dayfirst else "%m/%d/%Y %I:%M:%S %p"
-    first_dt = pd.to_datetime(first, format=fmt0, errors="raise")
+    parsed_seconds = pd.to_datetime(s, format=fmt0, errors="raise")
     step_us = int(round(1_000_000 / sample_rate_hz))
-    return pd.date_range(start=first_dt, periods=len(s), freq=f"{step_us}us").to_series(
-        index=series.index
+    if parsed_seconds.nunique() == 1:
+        return pd.date_range(
+            start=parsed_seconds.iloc[0], periods=len(s), freq=f"{step_us}us"
+        ).to_series(index=series.index)
+
+    within_second = parsed_seconds.groupby(parsed_seconds).cumcount()
+    return parsed_seconds + pd.to_timedelta(
+        within_second.to_numpy() * step_us,
+        unit="us",
     )
 
 
-def _decide_dayfirst_from_probe(
-    first_timestamp_str: str, probe_reference: datetime
+def _decide_dayfirst_from_reference(
+    first_timestamp_str: str, reference_timestamp: datetime
 ) -> bool:
     """
     Decide if a date string is day-first (dd/mm/yyyy) or month-first (mm/dd/yyyy),
-    using the first timestamp and a known probe reference date.
+    choosing the valid interpretation closest to the supplied reference date.
     """
     ts_str = str(first_timestamp_str).strip().upper()
 
     # Extract the two leading numbers (potentially day/month in some order)
-    match = re.match(r"\s*(\d{1,2})/(\d{1,2})/", ts_str)
+    match = re.match(r"\s*(\d{1,2})/(\d{1,2})/(\d{4})", ts_str)
     if not match:
         return False  # fallback: assume month/day
 
     first_number = int(match.group(1))
     second_number = int(match.group(2))
-    ref_month, ref_day = probe_reference.month, probe_reference.day
+    year = int(match.group(3))
 
     # Case 1: Direct match to reference date
-    if (first_number, second_number) == (ref_month, ref_day):
+    if (first_number, second_number) == (
+        reference_timestamp.month,
+        reference_timestamp.day,
+    ):
         return False  # month/day
-    if (first_number, second_number) == (ref_day, ref_month):
+    if (first_number, second_number) == (
+        reference_timestamp.day,
+        reference_timestamp.month,
+    ):
         return True  # day/month
 
     # Case 2: Disambiguate with >12 rule
@@ -85,7 +101,28 @@ def _decide_dayfirst_from_probe(
     if second_number > 12:
         return False  # must be month/day
 
-    # Case 3: Still ambiguous → default to month/day
+    candidates: list[tuple[bool, datetime]] = []
+    try:
+        candidates.append((False, datetime(year, first_number, second_number)))
+    except ValueError:
+        pass
+    try:
+        candidates.append((True, datetime(year, second_number, first_number)))
+    except ValueError:
+        pass
+
+    if candidates:
+        reference_date = datetime(
+            reference_timestamp.year,
+            reference_timestamp.month,
+            reference_timestamp.day,
+        )
+        return min(
+            candidates,
+            key=lambda candidate: abs((candidate[1] - reference_date).total_seconds()),
+        )[0]
+
+    # No valid candidate is available: default to month/day.
     return False
 
 
@@ -171,12 +208,15 @@ def prepare_numerical_data(
 def extract_and_process_data(
     data: pd.DataFrame,
     behaviour_data: dict[str, list[tuple[int, float, float, float]]] | None,
-    probe_date_time: str,
     alignment_date_time: str,
+    *,
+    timeline_origin: Literal["first_valid", "alignment"] = "first_valid",
 ) -> dict[str, Any]:
-    probe_ref, align_ref = parse_reference_timestamps(
-        probe_date_time, alignment_date_time
-    )
+    """Parse telemetry and express it on the requested timeline."""
+    if timeline_origin not in {"first_valid", "alignment"}:
+        raise ValueError("timeline_origin must be 'first_valid' or 'alignment'.")
+
+    align_ref = parse_reference_timestamp(alignment_date_time)
 
     skip_rows = detect_skip_rows(data)
     meta_data, all_numerical_data = split_data(data, skip_rows)
@@ -185,51 +225,99 @@ def extract_and_process_data(
         meta_data, all_numerical_data
     )
 
-    numerical_data = parse_numerical_data(all_numerical_data, probe_ref, sample_rates)
+    numerical_data = parse_numerical_data(all_numerical_data, align_ref, sample_rates)
 
-    numerical_data, new_ref, removed_nan_offset = align_and_clean_datetime(
-        numerical_data, probe_ref
+    numerical_data, first_valid_ref = align_and_clean_datetime(numerical_data)
+    timeline_ref = align_ref if timeline_origin == "alignment" else first_valid_ref
+    alignment_offset = (align_ref - first_valid_ref).total_seconds()
+    log_info(
+        f"Alignment offset from first valid sample: {alignment_offset}s | "
+        f"Timeline origin: {timeline_origin}"
     )
-
-    # bookkeeping only
-    alignment_offset, total_offset = compute_time_offsets(
-        align_ref, probe_ref, removed_nan_offset
-    )
-    log_info(f"Alignment offset: {alignment_offset}s | Total offset: {total_offset}s")
 
     # master timebase
     numerical_data["TimeSinceReference"] = (
-        pd.to_datetime(numerical_data["DateTime"]) - pd.Timestamp(new_ref)
+        pd.to_datetime(numerical_data["DateTime"]) - pd.Timestamp(timeline_ref)
     ).dt.total_seconds()
+
+    pressure_coverage = continuous_signal_coverage(
+        numerical_data,
+        "Pressure",
+        max_gap_seconds=PRESSURE_COVERAGE_MAX_GAP_SECONDS,
+    )
+    analyzable_pressure_coverage = trim_coverage_intervals(
+        pressure_coverage,
+        margin_seconds=PRESSURE_FILTER_EDGE_MARGIN_SECONDS,
+    )
 
     # build once, after finalised timeline
     processed_data: dict[str, Any] = build_output_frames(numerical_data, sample_rates)
 
     if behaviour_data is not None:
-        processed_data["Behaviours"] = adjust_behaviours(behaviour_data, total_offset)
+        behaviour_offset = (align_ref - timeline_ref).total_seconds()
+        processed_data["Behaviours"] = adjust_behaviours(
+            behaviour_data, behaviour_offset
+        )
 
-    processed_data["ReferenceTimestamp"] = new_ref
+    processed_data["ReferenceTimestamp"] = timeline_ref
+    processed_data["FirstValidTimestamp"] = first_valid_ref
+    processed_data["PressureCoverageIntervals"] = pressure_coverage
+    processed_data["PressureAnalyzableIntervals"] = analyzable_pressure_coverage
+    processed_data["PressureCoverageMaxGapSeconds"] = PRESSURE_COVERAGE_MAX_GAP_SECONDS
+    processed_data["PressureFilterEdgeMarginSeconds"] = (
+        PRESSURE_FILTER_EDGE_MARGIN_SECONDS
+    )
 
     return processed_data
 
 
-def compute_time_offsets(
-    video_ref: datetime,
-    probe_ref: datetime,
-    removed_nan: float,
-) -> tuple[float, float]:
-    video_diff = (video_ref - probe_ref).total_seconds()
-    total = video_diff - removed_nan
-    return video_diff, total
+def continuous_signal_coverage(
+    numerical_data: pd.DataFrame,
+    signal_name: str,
+    *,
+    max_gap_seconds: float,
+) -> list[tuple[float, float]]:
+    """Return valid-signal intervals, splitting outages longer than a threshold."""
+    if signal_name not in numerical_data or "TimeSinceReference" not in numerical_data:
+        return []
+
+    signal = pd.to_numeric(numerical_data[signal_name], errors="coerce")
+    times = pd.to_numeric(numerical_data["TimeSinceReference"], errors="coerce")
+    valid_times = (
+        times[signal.notna() & times.notna()].drop_duplicates().sort_values().tolist()
+    )
+    if not valid_times:
+        return []
+
+    intervals: list[tuple[float, float]] = []
+    interval_start = float(valid_times[0])
+    previous = interval_start
+    for raw_time in valid_times[1:]:
+        current = float(raw_time)
+        if current - previous > max_gap_seconds:
+            intervals.append((interval_start, previous))
+            interval_start = current
+        previous = current
+    intervals.append((interval_start, previous))
+    return intervals
 
 
-def parse_reference_timestamps(
-    probe_date_time: str, alignment_date_time: str
-) -> tuple[datetime, datetime]:
-    """Parse probe and alignment timestamps into datetime objects."""
-    probe_ref = datetime.strptime(probe_date_time, "%d/%m/%Y %I:%M:%S %p")
-    align_ref = datetime.strptime(alignment_date_time, "%d/%m/%Y %I:%M:%S %p")
-    return probe_ref, align_ref
+def trim_coverage_intervals(
+    intervals: list[tuple[float, float]],
+    *,
+    margin_seconds: float,
+) -> list[tuple[float, float]]:
+    """Exclude filter-edge regions from continuous signal coverage."""
+    return [
+        (start + margin_seconds, end - margin_seconds)
+        for start, end in intervals
+        if end - start >= 2 * margin_seconds
+    ]
+
+
+def parse_reference_timestamp(reference_date_time: str) -> datetime:
+    """Parse a day-first external alignment timestamp."""
+    return datetime.strptime(reference_date_time, "%d/%m/%Y %I:%M:%S %p")
 
 
 def build_output_frames(
@@ -291,13 +379,15 @@ def safe_interpolate(
         time_axis,
         clean_df["TimeSinceReference"],
         clean_df[signal_name],
+        left=np.nan,
+        right=np.nan,
     )
     return pd.DataFrame({"TimeSinceReference": time_axis, signal_name: interp_vals})
 
 
 def parse_numerical_data(
     all_numerical_data: pd.DataFrame,
-    probe_reference_timestamp: datetime,  # always m/d/Y %I:%M:%S %p
+    reference_timestamp: datetime,
     sample_rates: dict[str, float],
 ) -> pd.DataFrame:
     """Parse telemetry dataframe into numeric values with timestamps."""
@@ -310,7 +400,7 @@ def parse_numerical_data(
 
     # Decide date parsing order
     first_str = str(numerical_data["DateTime"].iloc[0])
-    dayfirst = _decide_dayfirst_from_probe(first_str, probe_reference_timestamp)
+    dayfirst = _decide_dayfirst_from_reference(first_str, reference_timestamp)
 
     # Pick master rate (prefer Pressure > Temp > Activity)
     if "Pressure" in sample_rates:
@@ -339,13 +429,13 @@ def parse_numerical_data(
 
 
 def align_and_clean_datetime(
-    numerical_data: pd.DataFrame, probe_reference_timestamp: datetime
-) -> tuple[pd.DataFrame, datetime, float]:
+    numerical_data: pd.DataFrame,
+) -> tuple[pd.DataFrame, datetime]:
     """
     Clean numerical data by dropping duplicates/NaNs
     and shift the reference timestamp to the first valid sample.
-    Returns the cleaned data, the new reference timestamp,
-    and the offset in seconds relative to the original probe reference.
+    Returns the cleaned data and its first valid sample timestamp. External
+    alignment timestamps are deliberately not range-checked here.
     """
 
     # Pick anchor column
@@ -371,72 +461,74 @@ def align_and_clean_datetime(
     first_valid_time = pd.to_datetime(
         numerical_data.at[first_valid_index, "DateTime"]
     ).to_pydatetime()
-    last_valid_time = pd.to_datetime(
-        numerical_data["DateTime"].iloc[-1]
-    ).to_pydatetime()
-
-    # Sanity check for reference timestamp
-    if not (first_valid_time <= probe_reference_timestamp <= last_valid_time):
-        raise ValueError(
-            f"Reference timestamp {probe_reference_timestamp} not within "
-            f"data range ({first_valid_time} → {last_valid_time})."
-        )
-
-    new_reference_timestamp: datetime = first_valid_time
-    removed_nan_time_diff = (
-        first_valid_time - probe_reference_timestamp
-    ).total_seconds()
-
     numerical_data = numerical_data.loc[first_valid_index:].reset_index(drop=True)
 
-    return numerical_data, new_reference_timestamp, removed_nan_time_diff
+    return numerical_data, first_valid_time
 
 
 def preprocess_pressure_data(
     pressure_data: pd.DataFrame, pressure_sample_rate: float
 ) -> pd.DataFrame:
-    """Preprocess pressure signal by detrending, low-pass filtering, and smoothing."""
+    """Filter continuous pressure segments without bridging long outages."""
 
     pressure_data = pressure_data.copy()
+    pressure_data["Pressure"] = pd.to_numeric(
+        pressure_data["Pressure"], errors="coerce"
+    )
 
-    pressure_data["Pressure"] = pressure_data["Pressure"].interpolate(method="linear")
-
-    # Drop trailing NaNs if any
+    # Drop trailing NaNs if any.
     last_valid_index = pressure_data["Pressure"].last_valid_index()
     log_info(f"Last valid index (non-NaN in Pressure): {last_valid_index}")
     pressure_data = pressure_data.loc[:last_valid_index]
+    pressure_data["PressureHighpass"] = np.nan
+    pressure_data["SmoothedPressure"] = np.nan
+    pressure_data["dvdt"] = np.nan
 
-    raw_pressure = pressure_data["Pressure"].to_numpy(dtype="float64")
-
-    # # Detrend
-    # detrended = detrend(
-    #     pressure_data["Pressure"].to_numpy(dtype="float64"),
-    #     type="linear",
-    # )
-
-    # High-pass at 0.02 Hz for drift removal
-    highpassed = butter_highpass_filter(
-        raw_pressure, fs=pressure_sample_rate, cutoff_hz=0.02
+    valid_rows = pressure_data["Pressure"].notna()
+    valid_times = pressure_data.loc[valid_rows, "TimeSinceReference"].astype(float)
+    split_points = np.flatnonzero(
+        valid_times.diff().fillna(0).to_numpy() > PRESSURE_COVERAGE_MAX_GAP_SECONDS
     )
+    valid_indices = valid_times.index.to_numpy()
 
-    # Store high-passed signal for later PSD
-    pressure_data["PressureHighpass"] = highpassed
+    for group in np.split(valid_indices, split_points):
+        if len(group) == 0:
+            continue
+        segment_index = pressure_data.loc[group[0] : group[-1]].index
+        segment = pressure_data.loc[segment_index, "Pressure"].interpolate(
+            method="linear"
+        )
+        if len(segment) < 36 or segment.isna().any():
+            log_warning(
+                "Skipping pressure preprocessing for a continuous segment "
+                f"with only {len(segment)} rows."
+            )
+            continue
 
-    # Butterworth low-pass filter
-    filtered = butter_lowpass_filter(
-        raw_pressure, cutoff_hz=10, fs=pressure_sample_rate
-    )
+        raw_pressure = segment.to_numpy(dtype="float64")
+        highpassed = butter_highpass_filter(
+            raw_pressure, fs=pressure_sample_rate, cutoff_hz=0.02
+        )
+        filtered = butter_lowpass_filter(
+            raw_pressure, cutoff_hz=10, fs=pressure_sample_rate
+        )
+        smoothed = savgol_filter(filtered, window_length=35, polyorder=2)
+        dvdt = compute_first_derivative(filtered, pressure_sample_rate)
 
-    # Ensure window is odd and fits signal length
-    window = min(35, len(filtered) - 1)
-    if window % 2 == 0:
-        window -= 1
-
-    smoothed = savgol_filter(filtered, window_length=window, polyorder=2)
-    dvdt = compute_first_derivative(filtered, pressure_sample_rate)
-
-    pressure_data["SmoothedPressure"] = smoothed
-    pressure_data["dvdt"] = dvdt
+        pressure_data.loc[segment_index, "Pressure"] = raw_pressure
+        segment_times = pressure_data.loc[segment_index, "TimeSinceReference"].astype(
+            float
+        )
+        usable = (
+            segment_times >= segment_times.iloc[0] + PRESSURE_FILTER_EDGE_MARGIN_SECONDS
+        ) & (
+            segment_times
+            <= segment_times.iloc[-1] - PRESSURE_FILTER_EDGE_MARGIN_SECONDS
+        )
+        usable_index = segment_index[usable.to_numpy()]
+        pressure_data.loc[usable_index, "PressureHighpass"] = highpassed[usable]
+        pressure_data.loc[usable_index, "SmoothedPressure"] = smoothed[usable]
+        pressure_data.loc[usable_index, "dvdt"] = dvdt[usable]
 
     pressure_data.reset_index(drop=True, inplace=True)
 
@@ -449,7 +541,9 @@ def adjust_behaviours(
 ) -> dict[str, list[tuple[int, float, float, float]]]:
     """
     Shift start and end times of behaviour instances by a given offset.
-    Behaviour instances with negative adjusted times are skipped.
+
+    Negative times are retained so downstream coverage checks can distinguish
+    partially covered and unavailable behavior windows.
     """
     behaviour_data = deepcopy(behaviour_data)
     for behaviour, instances in behaviour_data.items():
@@ -457,15 +551,9 @@ def adjust_behaviours(
         for instance_number, start_time, end_time, duration in instances:
             adjusted_start_time = start_time + total_time_diff
             adjusted_end_time = end_time + total_time_diff
-            if adjusted_start_time >= 0 and adjusted_end_time >= 0:
-                adjusted_instances.append(
-                    (instance_number, adjusted_start_time, adjusted_end_time, duration)
-                )
-            else:
-                log_info(
-                    f"Skipping behavior instance {instance_number} due to "
-                    f"negative start or end time."
-                )
+            adjusted_instances.append(
+                (instance_number, adjusted_start_time, adjusted_end_time, duration)
+            )
 
         behaviour_data[behaviour] = adjusted_instances
     return behaviour_data
@@ -490,6 +578,8 @@ def prepare_raw_data(
             df_raw["TimeRel"],
             temp_data["TimeSinceReference"] - injection_sec,
             temp_data["Temp"],
+            left=np.nan,
+            right=np.nan,
         )
 
     if activity_data is not None and not activity_data.empty:
@@ -497,6 +587,8 @@ def prepare_raw_data(
             df_raw["TimeRel"],
             activity_data["TimeSinceReference"] - injection_sec,
             activity_data["Activity"],
+            left=np.nan,
+            right=np.nan,
         )
 
     return df_raw
