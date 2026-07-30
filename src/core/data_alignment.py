@@ -165,7 +165,17 @@ def prepare_numerical_data(
     raw_names = cols[1].astype(str).str.strip().str.lower()
 
     # Map to canonical names
-    signal_names = raw_names.map(name_map).dropna()
+    mapped_names = raw_names.map(name_map)
+    signal_names = mapped_names.dropna()
+
+    # Detect unrecognized signal names (mapped result is NaN but raw was not empty)
+    unrecognized_mask = mapped_names.isna() & (raw_names != "")
+    if unrecognized_mask.any():
+        unrecognized_names = raw_names.loc[unrecognized_mask].unique().tolist()
+        names_str = ", ".join(repr(n) for n in unrecognized_names)
+        log_warning(
+            f"Unrecognized signal name(s) in metadata (ignored): {names_str}"
+        )
 
     # Build column_order, keeping only first occurrence of each canonical signal
     column_order = {}
@@ -198,7 +208,15 @@ def prepare_numerical_data(
             raise ValueError(f"Unexpected rate format in metadata: {rate_str!r}")
 
         parts = rate_str.split(":")
-        sample_rates[sig] = float(parts[1].strip())
+        rate_value = float(parts[1].strip())
+
+        # Validate that sample rates are positive (fail fast at parsing, not at use)
+        if rate_value <= 0:
+            raise ValueError(
+                f"Invalid sample rate for {sig!r}: {rate_value} (must be positive)"
+            )
+
+        sample_rates[sig] = rate_value
 
     all_numerical_data = all_numerical_data.iloc[1:].reset_index(drop=True)
 
@@ -432,30 +450,64 @@ def align_and_clean_datetime(
     numerical_data: pd.DataFrame,
 ) -> tuple[pd.DataFrame, datetime]:
     """
-    Clean numerical data by dropping duplicates/NaNs
-    and shift the reference timestamp to the first valid sample.
-    Returns the cleaned data and its first valid sample timestamp. External
-    alignment timestamps are deliberately not range-checked here.
+    Clean numerical data by deduplicating DateTime values intelligently,
+    dropping leading NaNs, and shifting the reference timestamp to the first
+    valid sample. Returns the cleaned data and its first valid sample timestamp.
+    External alignment timestamps are deliberately not range-checked here.
+
+    When multiple rows share the same DateTime, we group them and take the first
+    non-NaN value per column. This preserves valid measurements that might
+    otherwise be discarded if they appear in later rows of a duplicate group.
     """
 
-    # Pick anchor column
-    for candidate in ["Pressure", "Temp", "Activity"]:
-        if (
-            candidate in numerical_data.columns
-            and numerical_data[candidate].notna().any()
-        ):
-            anchor_col = candidate
-            break
-    else:
-        raise ValueError("No usable signal found (Pressure/Temp/Activity missing).")
+    # Detect backwards jumps before dedup (duplicate-free out-of-order timestamps).
+    # Use diff to avoid false positives from NaT (NaT comparisons return False).
+    backwards_steps = (numerical_data["DateTime"].diff() < pd.Timedelta(0)).sum()
+    if backwards_steps > 0:
+        log_warning(
+            f"Found {backwards_steps} backwards timestamp jump(s) in raw data; "
+            f"sorting by DateTime to ensure monotonicity for interpolation"
+        )
 
-    numerical_data = numerical_data.drop_duplicates(subset="DateTime").reset_index(
-        drop=True
+    # Intelligent deduplication: group by DateTime and take first non-NaN per column
+    # This preserves valid measurements that might appear in later rows of a group
+    num_rows_before = len(numerical_data)
+
+    numerical_data = (
+        numerical_data.groupby("DateTime", as_index=False)
+        .first(numeric_only=False)
+        .reset_index(drop=True)
     )
 
-    first_valid_index = numerical_data[anchor_col].first_valid_index()
-    if first_valid_index is None:
-        raise ValueError(f"No valid {anchor_col} data found.")
+    num_rows_after = len(numerical_data)
+    num_collapsed = num_rows_before - num_rows_after
+
+    if num_collapsed > 0:
+        log_warning(
+            f"Collapsed {num_collapsed} rows into {num_rows_after} unique DateTime "
+            f"values (kept first non-NaN per column)"
+        )
+
+    # Explicitly sort by DateTime to guarantee ascending order for all downstream
+    # operations that rely on monotonic timestamps (interpolation, gap detection).
+    # While groupby(..., sort=True).first() does sort, explicit sorting ensures
+    # correctness regardless of groupby implementation changes.
+    numerical_data = numerical_data.sort_values("DateTime").reset_index(drop=True)
+
+    # Find the earliest first_valid_index across all present signals.
+    # This ensures we don't lose data from signals that start earlier than others.
+    first_valid_indices: list[int] = []
+    for sig_col in ["Pressure", "Temp", "Activity"]:
+        if sig_col in numerical_data.columns and numerical_data[sig_col].notna().any():
+            idx = numerical_data[sig_col].first_valid_index()
+            if idx is not None:
+                first_valid_indices.append(idx)
+
+    if not first_valid_indices:
+        raise ValueError("No usable signal found (Pressure/Temp/Activity missing).")
+
+    # Use the earliest valid index across all present signals
+    first_valid_index = min(first_valid_indices)
 
     # Explicit conversion for Pylance
     first_valid_time = pd.to_datetime(

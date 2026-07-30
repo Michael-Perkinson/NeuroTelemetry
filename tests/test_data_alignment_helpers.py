@@ -92,6 +92,72 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unexpected rate format"):
             prepare_numerical_data(meta, numerical)
 
+    def test_prepare_numerical_data_rejects_zero_sample_rate(self) -> None:
+        meta = pd.DataFrame([["# Col 2:", "Pressure", None, None, "Rate: 0"]])
+        numerical = pd.DataFrame(
+            [
+                ["DateTime", "Pressure"],
+                ["01/11/2025 05:05:09 PM", "1"],
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, r"Invalid sample rate for 'Pressure': 0.*must be positive"
+        ):
+            prepare_numerical_data(meta, numerical)
+
+    def test_prepare_numerical_data_rejects_negative_sample_rate(self) -> None:
+        meta = pd.DataFrame([["# Col 2:", "Activity", None, None, "Rate: -100"]])
+        numerical = pd.DataFrame(
+            [
+                ["DateTime", "Activity"],
+                ["01/11/2025 05:05:09 PM", "5"],
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, r"Invalid sample rate for 'Activity': -100.*must be positive"
+        ):
+            prepare_numerical_data(meta, numerical)
+
+    def test_prepare_numerical_data_warns_on_unrecognized_signal_names(
+        self,
+    ) -> None:
+        """Test that unrecognized signal names in metadata are logged as warnings
+        while recognized signals are processed normally."""
+        meta = pd.DataFrame(
+            [
+                ["# Col 2:", "Temp", None, None, "Rate: 10"],
+                ["# Col 3:", "Temp (C)", None, None, "Rate: 10"],
+                ["# Col 4:", "Activity", None, None, "Rate: 20"],
+            ]
+        )
+        numerical = pd.DataFrame(
+            [
+                ["DateTime", "Temp", "TempC", "Activity"],
+                ["01/11/2025 05:05:09 PM", "36.0", "36.0", "5"],
+            ]
+        )
+
+        with patch("src.core.data_alignment.log_warning") as mock_warn:
+            cleaned, sample_rates = prepare_numerical_data(meta, numerical)
+
+            # Verify that recognized signals are still present
+            self.assertIn("Temp", cleaned.columns)
+            self.assertIn("Activity", cleaned.columns)
+            # Unrecognized signal "Temp (C)" should NOT be in output
+            self.assertNotIn("TempC", cleaned.columns)
+
+            # Verify that a warning was logged mentioning the unrecognized name
+            self.assertTrue(
+                any(
+                    "temp (c)" in str(call).lower()
+                    for call in mock_warn.call_args_list
+                ),
+                f"Expected 'temp (c)' in log_warning calls, "
+                f"got: {mock_warn.call_args_list}",
+            )
+
     def test_decide_dayfirst_uses_alignment_reference_when_ambiguous(self) -> None:
         reference = datetime(2025, 11, 1, 17, 5, 9)
 
@@ -188,7 +254,11 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(parsed.loc[0, "DateTime"], pd.Timestamp("2025-11-01 17:05:09"))
         self.assertTrue(np.isnan(parsed.loc[1, "Pressure"]))
 
-    def test_align_and_clean_datetime_drops_duplicates_and_leading_nan(self) -> None:
+    def test_align_and_clean_datetime_deduplicates_preserving_valid_values(
+        self,
+    ) -> None:
+        """Test that when DateTime duplicates exist, we preserve valid (non-NaN)
+        measurements even if they appear in later rows of the duplicate group."""
         numerical = pd.DataFrame(
             {
                 "DateTime": [
@@ -203,8 +273,33 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         cleaned, new_ref = align_and_clean_datetime(numerical)
 
-        self.assertEqual(new_ref, datetime(2025, 1, 1, 12, 0, 1))
-        self.assertEqual(cleaned["Pressure"].tolist(), [1.0, 2.0])
+        # groupby().first() with duplicate DateTime should pick the first non-NaN
+        # Pressure value (99.0), not the NaN from row 0
+        self.assertEqual(new_ref, datetime(2025, 1, 1, 12, 0, 0))
+        self.assertEqual(cleaned["Pressure"].tolist(), [99.0, 1.0, 2.0])
+
+    def test_align_and_clean_datetime_handles_conflicting_values_in_duplicates(
+        self,
+    ) -> None:
+        """Test that when duplicate DateTimes have conflicting non-NaN values
+        in the same column, we pick the first and log a warning."""
+        numerical = pd.DataFrame(
+            {
+                "DateTime": [
+                    pd.Timestamp("2025-01-01 12:00:00"),
+                    pd.Timestamp("2025-01-01 12:00:00"),
+                    pd.Timestamp("2025-01-01 12:00:01"),
+                ],
+                "Pressure": [95.0, 99.0, 1.0],
+            }
+        )
+
+        cleaned, new_ref = align_and_clean_datetime(numerical)
+
+        # groupby().first() picks the first row in the group (95.0)
+        # when both have non-NaN values
+        self.assertEqual(new_ref, datetime(2025, 1, 1, 12, 0, 0))
+        self.assertEqual(cleaned["Pressure"].tolist(), [95.0, 1.0])
 
     def test_align_and_clean_datetime_rejects_missing_or_invalid_signal(self) -> None:
         with self.assertRaisesRegex(ValueError, "No usable signal"):
@@ -221,6 +316,86 @@ class TestDataAlignmentHelpers(unittest.TestCase):
                     }
                 ),
             )
+
+    def test_align_and_clean_datetime_preserves_earlier_signal_without_pressure(
+        self,
+    ) -> None:
+        """Test the concrete bug scenario: Activity has valid data starting at row 50,
+        Temp at row 100, no Pressure column. The anchor should be determined by the
+        earliest first_valid_index across all signals, not by priority."""
+        # Create data with Activity starting at row 50, Temp at row 100, no Pressure
+        timestamps = pd.date_range("2025-01-01", periods=150, freq="s")
+        activity_values = [np.nan] * 50 + list(range(100))  # valid from row 50
+        temp_values = [np.nan] * 100 + [
+            36.0 + i * 0.01 for i in range(50)
+        ]  # valid from row 100
+
+        numerical = pd.DataFrame(
+            {
+                "DateTime": timestamps,
+                "Temp": temp_values,
+                "Activity": activity_values,
+            }
+        )
+
+        cleaned, new_ref = align_and_clean_datetime(numerical)
+
+        # The trim point should be at row 50 (where Activity becomes valid),
+        # not row 100 (where Temp becomes valid)
+        # Row 50 has timestamp "2025-01-01 00:00:50" (50 seconds after midnight)
+        self.assertEqual(new_ref, pd.Timestamp("2025-01-01 00:00:50").to_pydatetime())
+        self.assertEqual(len(cleaned), 100)  # rows 50-149 = 100 rows
+        # First Activity value should be 0 (was row 50, now row 0 after trim)
+        self.assertEqual(cleaned["Activity"].iloc[0], 0.0)
+        # Activity at row 50 should be 50 (originally at row 100)
+        self.assertEqual(cleaned["Activity"].iloc[50], 50.0)
+        # First Temp should be NaN at row 0, valid from row 50 onward
+        self.assertTrue(np.isnan(cleaned["Temp"].iloc[0]))
+        self.assertEqual(cleaned["Temp"].iloc[50], 36.0)
+
+    def test_align_and_clean_datetime_detects_and_sorts_backwards_jumps(
+        self,
+    ) -> None:
+        """Test that genuinely out-of-order timestamps (backwards jumps without
+        duplicates) are detected, logged, and sorted to ensure monotonicity for
+        interpolation and gap detection."""
+        # Data with a backwards jump: forward, then backwards, then forward again
+        numerical = pd.DataFrame(
+            {
+                "DateTime": [
+                    pd.Timestamp("2025-01-01 12:00:00"),
+                    pd.Timestamp("2025-01-01 12:00:02"),
+                    pd.Timestamp("2025-01-01 12:00:01"),  # backwards jump
+                    pd.Timestamp("2025-01-01 12:00:03"),
+                ],
+                "Pressure": [1.0, 2.0, 1.5, 3.0],
+            }
+        )
+
+        with patch("src.core.data_alignment.log_warning") as mock_warn:
+            cleaned, new_ref = align_and_clean_datetime(numerical)
+
+            # Assert that log_warning was called with a message about backwards jumps
+            calls = mock_warn.call_args_list
+            self.assertTrue(
+                any("backwards" in str(call) for call in calls),
+                f"Expected 'backwards' in log_warning calls, got: {calls}",
+            )
+
+        # Assert that the output is sorted ascending by DateTime
+        self.assertTrue(cleaned["DateTime"].is_monotonic_increasing)
+        # Assert that the order is now correct
+        self.assertEqual(
+            cleaned["DateTime"].tolist(),
+            [
+                pd.Timestamp("2025-01-01 12:00:00"),
+                pd.Timestamp("2025-01-01 12:00:01"),
+                pd.Timestamp("2025-01-01 12:00:02"),
+                pd.Timestamp("2025-01-01 12:00:03"),
+            ],
+        )
+        # Verify the reference timestamp is the earliest (first after sorting)
+        self.assertEqual(new_ref, pd.Timestamp("2025-01-01 12:00:00").to_pydatetime())
 
     def test_build_output_frames_interpolates_optional_channels_and_atm(self) -> None:
         numerical = pd.DataFrame(
