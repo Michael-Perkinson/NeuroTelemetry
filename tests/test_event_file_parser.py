@@ -48,6 +48,39 @@ def test_read_and_process_event_file_requires_core_columns(local_tmpdir: Path) -
         read_and_process_event_file(event_path)
 
 
+def test_read_and_process_event_file_assigns_instances_by_chronological_order(
+    local_tmpdir: Path,
+) -> None:
+    """Instance numbers should follow start-time order, not CSV row order."""
+    event_path = local_tmpdir / "events.csv"
+    # CSV rows are out of chronological order for the same behavior
+    event_path.write_text(
+        "\n".join(
+            [
+                "Behavior,Start (s),Stop (s),Duration (s)",
+                "sleep,90,130,40",  # second sleep by start time, but first in file
+                "eat,60,70,10",
+                "sleep,10,50,40",   # first sleep by start time, but third in file
+            ]
+        )
+    )
+
+    df = read_and_process_event_file(event_path)
+
+    # Instance 1 should be the sleep with start=10 (earliest), instance 2 with start=90
+    result = df.to_dict("list")
+    sleep_rows = [
+        i for i in range(len(result["event"])) if result["event"][i] == "sleep"
+    ]
+    assert len(sleep_rows) == 2
+    sleep_1_idx = sleep_rows[0]
+    sleep_2_idx = sleep_rows[1]
+    assert result["instance"][sleep_1_idx] == 1
+    assert result["instance"][sleep_2_idx] == 2
+    assert result["start"][sleep_1_idx] == 10
+    assert result["start"][sleep_2_idx] == 90
+
+
 def test_structure_behaviour_events_groups_by_event() -> None:
     event_df = pd.DataFrame(
         {

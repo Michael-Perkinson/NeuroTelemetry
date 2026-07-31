@@ -118,7 +118,7 @@ class TestRespiratoryMetrics(unittest.TestCase):
         np.testing.assert_allclose(raw["T_I"], [0.5, 0.5, 0.5])
         np.testing.assert_allclose(raw["T_E"], [1.5, 1.5])
         np.testing.assert_allclose(raw["T_TOT"], [2.0, 2.0])
-        self.assertAlmostEqual(float(raw["Freq"]), 0.5)
+        np.testing.assert_allclose(raw["Freq"], [0.5, 0.5])
 
     def test_summarize_respiratory_cycles_aggregates_across_periods(self) -> None:
         summary = summarize_respiratory_cycles(

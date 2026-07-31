@@ -8,6 +8,7 @@ from scipy.signal import welch
 from scipy.signal.windows import hamming
 
 from src.core.power_spectral_analysis import (
+    DEFAULT_PSD_DRIFT_R2_THRESHOLD,
     DEFAULT_PSD_NFFT,
     DEFAULT_PSD_OVERLAP_FRACTION,
     DEFAULT_PSD_RESAMPLE_HZ,
@@ -18,6 +19,7 @@ from src.core.power_spectral_analysis import (
     _iter_segment_bounds,
     _metrics_table,
     _resample_segment,
+    _segment_drift_r2,
     _trim_period_ends,
     analyze_ttot_psd,
     plot_psd_results,
@@ -41,6 +43,48 @@ def _make_period(duration_s: float, interval_s: float = 1.0) -> dict[str, object
         "peak_indices": peak_times,
         "trough_indices": peak_times.iloc[:-1],
     }
+
+
+def _make_drifting_period(duration_s: float) -> dict[str, object]:
+    """A period whose breath intervals drift linearly rather than oscillate."""
+    n_breaths = int(duration_s / 0.8) + 1
+    intervals = np.linspace(0.5, 1.1, n_breaths - 1)
+    peak_times = pd.Series(np.concatenate(([0.0], np.cumsum(intervals))))
+    return {
+        "name": f"DriftPeriod_0_{duration_s}",
+        "start_time": 0.0,
+        "end_time": float(peak_times.iloc[-1]),
+        "peak_times": peak_times,
+        "trough_times": peak_times.iloc[:-1],
+        "peak_indices": peak_times,
+        "trough_indices": peak_times.iloc[:-1],
+    }
+
+
+def test_segment_drift_r2_flags_linear_trend_dominated_segment() -> None:
+    time_s = np.arange(0.0, 50.0, 0.1)
+    drifting_values = 0.5 + 0.02 * time_s  # pure linear drift, no oscillation
+
+    r2 = _segment_drift_r2(time_s, drifting_values)
+
+    assert r2 > DEFAULT_PSD_DRIFT_R2_THRESHOLD
+    assert np.isclose(r2, 1.0, atol=1e-6)
+
+
+def test_segment_drift_r2_is_low_for_oscillatory_signal_without_drift() -> None:
+    time_s = np.arange(0.0, 50.0, 0.1)
+    oscillating_values = 1.0 + 0.1 * np.sin(2.0 * np.pi * 0.2 * time_s)
+
+    r2 = _segment_drift_r2(time_s, oscillating_values)
+
+    assert r2 < DEFAULT_PSD_DRIFT_R2_THRESHOLD
+
+
+def test_segment_drift_r2_handles_constant_signal_without_division_by_zero() -> None:
+    time_s = np.arange(0.0, 50.0, 0.1)
+    constant_values = np.full_like(time_s, 1.0)
+
+    assert _segment_drift_r2(time_s, constant_values) == 0.0
 
 
 def test_segments_shorter_than_configured_duration_are_discarded() -> None:
@@ -289,6 +333,45 @@ def test_analyze_ttot_psd_records_rejections_for_short_periods(
         assert (local_tmpdir / "PSD" / filename).exists()
     assert results["segment_summary"].columns[0] == "AnalysisID"
     assert results["rejection_log"].columns[0] == "AnalysisID"
+
+
+def test_analyze_ttot_psd_flags_drift_dominated_segments(local_tmpdir: Path) -> None:
+    window_periods = {
+        "0.0-200.0": [_make_drifting_period(duration_s=200.0)],
+    }
+
+    results = analyze_ttot_psd(
+        window_periods=window_periods,
+        output_folder=local_tmpdir / "PSD",
+        log=lambda _msg: None,
+    )
+
+    segment_summary = results["segment_summary"]
+    assert not segment_summary.empty
+    assert segment_summary["DriftDominated"].any()
+    drift_r2 = segment_summary.loc[segment_summary["DriftDominated"], "DriftR2"]
+    assert (drift_r2 > DEFAULT_PSD_DRIFT_R2_THRESHOLD).all()
+
+    window_metrics = results["window_metrics"]
+    assert "possible drift dominates" in window_metrics["QC_Warning"].iloc[0]
+
+
+def test_analyze_ttot_psd_does_not_flag_drift_for_non_drifting_signal(
+    local_tmpdir: Path,
+) -> None:
+    window_periods = {
+        "0.0-180.0": [_make_period(duration_s=180.0, interval_s=1.0)],
+    }
+
+    results = analyze_ttot_psd(
+        window_periods=window_periods,
+        output_folder=local_tmpdir / "PSD",
+        log=lambda _msg: None,
+    )
+
+    segment_summary = results["segment_summary"]
+    assert not segment_summary["DriftDominated"].any()
+    assert "drift" not in results["window_metrics"]["QC_Warning"].iloc[0]
 
 
 def test_empty_plot_overwrites_stale_summary_images(local_tmpdir: Path) -> None:

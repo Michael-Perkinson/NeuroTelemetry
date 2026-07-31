@@ -264,7 +264,7 @@ def calculate_respiratory_metrics_raw(
             "Drive": np.array([]),
             "Pressure_Diff": np.array([]),
             "Peak_to_Peak": np.array([]),
-            "Freq": np.nan,
+            "Freq": np.array([]),
         }
 
     if trough_indices.iloc[0] > peak_indices.iloc[0]:
@@ -296,7 +296,9 @@ def calculate_respiratory_metrics_raw(
     respiratory_drive = PI / T_I
 
     peak_to_peak_times = np.diff(peak_vals)
-    frequency_hz = 1 / peak_to_peak_times.mean() if len(peak_to_peak_times) else np.nan
+    frequencies = (
+        1 / peak_to_peak_times if len(peak_to_peak_times) > 0 else np.array([])
+    )
 
     return {
         "T_I": T_I,
@@ -306,7 +308,7 @@ def calculate_respiratory_metrics_raw(
         "Drive": respiratory_drive,
         "Pressure_Diff": PI,
         "Peak_to_Peak": peak_to_peak_times,
-        "Freq": frequency_hz,
+        "Freq": frequencies,
     }
 
 
@@ -343,10 +345,7 @@ def summarize_respiratory_cycles(
         for key in metrics:
             val = raw.get(key)
 
-            if key == "Freq":
-                if isinstance(val, (float | np.floating)) and not np.isnan(val):
-                    metrics[key].append(float(val))
-            elif isinstance(val, (pd.Series | np.ndarray | list | tuple)):
+            if isinstance(val, (pd.Series | np.ndarray | list | tuple)):
                 if len(val) > 0:
                     metrics[key].extend(map(float, val))
 
@@ -366,15 +365,12 @@ def summarize_respiratory_cycles(
         "Drive",
         "Pressure_Diff",
         "Peak_to_Peak",
+        "Freq",
     ]:
         result.update(agg(key))
 
-    result["Frequency_Hz"] = (
-        float(np.mean(metrics["Freq"])) if metrics["Freq"] else np.nan
-    )
-    result["Frequency_Hz_std"] = (
-        float(np.std(metrics["Freq"])) if metrics["Freq"] else np.nan
-    )
+    result["Frequency_Hz"] = result.pop("Freq_mean", np.nan)
+    result["Frequency_Hz_std"] = result.pop("Freq_std", np.nan)
 
     return result
 

@@ -29,11 +29,11 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
         column_map[key] = matches[0]
 
     df["event"] = df[column_map["event"]]
-    df["instance"] = df.groupby("event").cumcount() + 1
     df["start"] = pd.to_numeric(df[column_map["start"]], errors="coerce")
     df["end"] = pd.to_numeric(df[column_map["stop"]], errors="coerce")
     df["duration"] = pd.to_numeric(df[column_map["duration"]], errors="coerce")
-    df = df.sort_values(["event", "instance"]).reset_index(drop=True)
+    df = df.sort_values(["event", "start"]).reset_index(drop=True)
+    df["instance"] = df.groupby("event").cumcount() + 1
 
     return df[["event", "instance", "start", "end", "duration"]]
 

@@ -73,7 +73,7 @@ def test_calculate_respiratory_metrics_raw_returns_per_cycle_arrays() -> None:
     assert np.asarray(raw["Drive"]).tolist() == [4.0, 4.0, 4.0]
     assert np.asarray(raw["Pressure_Diff"]).tolist() == [2.0, 2.0, 2.0]
     assert np.asarray(raw["Peak_to_Peak"]).tolist() == [1.0, 1.0]
-    assert raw["Freq"] == 1.0
+    assert np.asarray(raw["Freq"]).tolist() == [1.0, 1.0]
 
 
 def test_compute_atm_pressure_session_summary_handles_present_and_empty_data() -> None:

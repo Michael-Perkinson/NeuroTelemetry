@@ -22,6 +22,8 @@ DEFAULT_PSD_SMOOTH_NPERSEG: int = (
 )
 DEFAULT_PSD_AUC_BAND_HZ: float = 0.25  # ±Hz around fmax
 DEFAULT_PSD_WINDOW: str = "hamming"
+DEFAULT_PSD_DRIFT_R2_THRESHOLD: float = 0.3  # segments with linear-trend R2 above
+# this are flagged as drift-dominated (see _segment_drift_r2)
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +149,24 @@ def _resample_segment(
     )
 
 
+def _segment_drift_r2(time_s: np.ndarray, values: np.ndarray) -> float:
+    """R² of a linear trend fit, i.e. the fraction of segment variance explained
+    by drift rather than oscillation.
+
+    No detrending is applied before the Welch PSD (see _resample_segment), so a
+    segment dominated by linear drift will have its PSD dominated by near-DC
+    power instead of any genuine respiratory oscillation. This is used purely
+    as a QC flag — it never alters the PSD/fmax computation itself.
+    """
+    total_ss = float(np.sum((values - values.mean()) ** 2))
+    if total_ss == 0.0:
+        return 0.0
+    slope, intercept = np.polyfit(time_s, values, deg=1)
+    residuals = values - (slope * time_s + intercept)
+    residual_ss = float(np.sum(residuals**2))
+    return max(0.0, 1.0 - residual_ss / total_ss)
+
+
 def _compute_welch_psd(
     signal: np.ndarray,
     resample_hz: float,
@@ -224,25 +244,34 @@ def _metrics_table(
     per_window_metrics: dict[str, dict[str, float]],
     resample_hz: float,
     smooth_nperseg: int,
+    window_drift_flags: dict[str, bool] | None = None,
 ) -> pd.DataFrame:
     """Build the compact per-window PSD table intended for collation/QC."""
     rows: list[dict[str, Any]] = []
     fmax_high_warn = resample_hz / 2 * 0.8
     nominal_resolution_hz = resample_hz / smooth_nperseg
+    window_drift_flags = window_drift_flags or {}
 
     for window_key, metrics in per_window_metrics.items():
         fmax = float(metrics.get("fmax", np.nan))
-        warning = ""
+        warnings: list[str] = []
         if np.isfinite(fmax):
             if fmax == 0.0:
-                warning = "fmax at 0 Hz; inspect PSD curve"
+                warnings.append("fmax at 0 Hz; inspect PSD curve")
             elif fmax < nominal_resolution_hz:
-                warning = (
+                warnings.append(
                     "fmax below nominal Welch resolution; interpret as "
                     "very-low-frequency power"
                 )
             elif fmax > fmax_high_warn:
-                warning = "fmax near Nyquist; inspect PSD curve"
+                warnings.append("fmax near Nyquist; inspect PSD curve")
+
+        if window_drift_flags.get(window_key, False):
+            warnings.append(
+                "possible drift dominates one or more segments; fmax may "
+                "reflect trend, not oscillation"
+            )
+        warning = "; ".join(warnings)
 
         rows.append(
             {
@@ -434,12 +463,14 @@ def analyze_ttot_psd(
     window_psd_lookup: dict[str, list[np.ndarray]] = {}
     comparison_window_psd_lookup: dict[str, list[np.ndarray]] = {}
     per_window_metrics: dict[str, dict[str, float]] = {}
+    window_drift_flags: dict[str, bool] = {}
 
     total_candidate_segments = 0
 
     for window_key, periods in window_periods.items():
         window_psd_lookup.setdefault(window_key, [])
         comparison_window_psd_lookup.setdefault(window_key, [])
+        window_drift_flags.setdefault(window_key, False)
 
         for period_idx, period in enumerate(periods, start=1):
             period_name = period.get("name", f"Period_{period_idx}")
@@ -527,6 +558,14 @@ def analyze_ttot_psd(
                     )
                     continue
 
+                drift_r2 = _segment_drift_r2(
+                    resampled_df["SegmentTime_s"].to_numpy(dtype=float),
+                    resampled_df["Ttot_s"].to_numpy(dtype=float),
+                )
+                drift_dominated = drift_r2 > DEFAULT_PSD_DRIFT_R2_THRESHOLD
+                if drift_dominated:
+                    window_drift_flags[window_key] = True
+
                 freq_hz, psd = _compute_welch_psd(
                     signal=resampled_df["Ttot_s"].to_numpy(dtype=float),
                     resample_hz=resample_hz,
@@ -598,6 +637,8 @@ def analyze_ttot_psd(
                         "ResampledPoints": int(len(resampled_df)),
                         "ResampleHz": resample_hz,
                         "MeanTtot_s": float(resampled_df["Ttot_s"].mean()),
+                        "DriftR2": drift_r2,
+                        "DriftDominated": drift_dominated,
                     }
                 )
 
@@ -654,6 +695,8 @@ def analyze_ttot_psd(
             "ResampledPoints",
             "ResampleHz",
             "MeanTtot_s",
+            "DriftR2",
+            "DriftDominated",
         ],
     )
     per_segment_psd_df = (
@@ -766,7 +809,9 @@ def analyze_ttot_psd(
         "AUCBandHz": auc_band_hz,
         "AUCBandStatus": "Exploratory mouse adaptation",
     }
-    window_metrics_df = _metrics_table(per_window_metrics, resample_hz, primary_nperseg)
+    window_metrics_df = _metrics_table(
+        per_window_metrics, resample_hz, primary_nperseg, window_drift_flags
+    )
     window_metrics_df.insert(0, "AnalysisID", analysis_id)
     window_metrics_df.to_csv(output_folder / "ttot_psd_window_metrics.csv", index=False)
     _export_psd_workbook(
