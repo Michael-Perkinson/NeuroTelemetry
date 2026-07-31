@@ -173,9 +173,7 @@ def prepare_numerical_data(
     if unrecognized_mask.any():
         unrecognized_names = raw_names.loc[unrecognized_mask].unique().tolist()
         names_str = ", ".join(repr(n) for n in unrecognized_names)
-        log_warning(
-            f"Unrecognized signal name(s) in metadata (ignored): {names_str}"
-        )
+        log_warning(f"Unrecognized signal name(s) in metadata (ignored): {names_str}")
 
     # Build column_order, keeping only first occurrence of each canonical signal
     column_order = {}

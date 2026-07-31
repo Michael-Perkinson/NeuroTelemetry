@@ -151,8 +151,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             # Verify that a warning was logged mentioning the unrecognized name
             self.assertTrue(
                 any(
-                    "temp (c)" in str(call).lower()
-                    for call in mock_warn.call_args_list
+                    "temp (c)" in str(call).lower() for call in mock_warn.call_args_list
                 ),
                 f"Expected 'temp (c)' in log_warning calls, "
                 f"got: {mock_warn.call_args_list}",

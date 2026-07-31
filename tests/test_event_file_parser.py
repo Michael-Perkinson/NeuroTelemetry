@@ -60,7 +60,7 @@ def test_read_and_process_event_file_assigns_instances_by_chronological_order(
                 "Behavior,Start (s),Stop (s),Duration (s)",
                 "sleep,90,130,40",  # second sleep by start time, but first in file
                 "eat,60,70,10",
-                "sleep,10,50,40",   # first sleep by start time, but third in file
+                "sleep,10,50,40",  # first sleep by start time, but third in file
             ]
         )
     )
