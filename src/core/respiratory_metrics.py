@@ -56,7 +56,7 @@ def calculate_binned_period_metrics(
             continue
 
         # Calculate respiratory metrics
-        bin_metrics = calculate_respiratory_metrics(
+        bin_metrics = calculate_period_respiratory_metrics(
             bin_peaks, bin_peaks, bin_troughs, pressure_data
         )
         bin_metrics["Bin_Start"] = float(bin_start)
@@ -123,12 +123,12 @@ def calculate_valid_period_metrics(
     using time-masked peak/trough series where `.index` is aligned to pressure_data.
     """
 
-    return calculate_respiratory_metrics(
+    return calculate_period_respiratory_metrics(
         peak_times, peak_times, trough_times, pressure_data, include_std=True
     )
 
 
-def calculate_respiratory_metrics(
+def calculate_period_respiratory_metrics(
     period_peaks: pd.Series,
     peak_indices: pd.Series,
     trough_indices: pd.Series,
@@ -245,7 +245,7 @@ def calculate_respiratory_metrics(
     return metrics
 
 
-def calculate_respiratory_metrics_raw(
+def calculate_period_respiratory_metrics_raw(
     period_peaks: pd.Series,
     peak_indices: pd.Series,
     trough_indices: pd.Series,
@@ -340,7 +340,9 @@ def summarize_respiratory_cycles(
         if len(peaks) < 2 or len(troughs) < 2:
             continue
 
-        raw = calculate_respiratory_metrics_raw(peaks, peaks, troughs, pressure_data)
+        raw = calculate_period_respiratory_metrics_raw(
+            peaks, peaks, troughs, pressure_data
+        )
 
         for key in metrics:
             val = raw.get(key)

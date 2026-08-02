@@ -36,7 +36,10 @@ from openpyxl.utils.datetime import from_excel
 # Allow running from repo root without installing the package
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.controllers.pressure_controller import load_data, run_pressure_pipeline
+from src.controllers.pressure_controller import (
+    load_pressure_data,
+    run_pressure_pipeline,
+)
 
 REQUIRED_COLUMNS = {
     "telemetry_file",
@@ -166,7 +169,7 @@ def run_batch(config_path: Path, output_dir: Path | None = None) -> bool:
             continue
 
         try:
-            telemetry_df, event_df = load_data(telemetry_path, event_path)
+            telemetry_df, event_df = load_pressure_data(telemetry_path, event_path)
             result = run_pressure_pipeline(
                 telemetry_df=telemetry_df,
                 event_df=event_df,

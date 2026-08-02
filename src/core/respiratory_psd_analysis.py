@@ -26,9 +26,7 @@ DEFAULT_PSD_DRIFT_R2_THRESHOLD: float = 0.3  # segments with linear-trend R2 abo
 # this are flagged as drift-dominated (see _segment_drift_r2)
 
 
-# ---------------------------------------------------------------------------
 # Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _sanitize_peak_times(peak_times: pd.Series) -> np.ndarray:
@@ -76,7 +74,7 @@ def _trim_period_ends(trace_df: pd.DataFrame, n_samples: int) -> pd.DataFrame:
     return trace_df.iloc[n_samples : len(trace_df) - n_samples].reset_index(drop=True)
 
 
-def _iter_segment_bounds(
+def _get_segment_bounds(
     start_time: float,
     end_time: float,
     segment_seconds: float,
@@ -223,7 +221,7 @@ def _extract_psd_metrics(
     return {"fmax": fmax, "PSDmax": PSDmax, "AUC": AUC}
 
 
-def _mean_psd_table(
+def _psd_curve_table(
     key_name: str,
     key_value: str,
     freq_hz: np.ndarray,
@@ -240,7 +238,7 @@ def _mean_psd_table(
     return pd.DataFrame(data)
 
 
-def _metrics_table(
+def _psd_metrics_summary_table(
     per_window_metrics: dict[str, dict[str, float]],
     resample_hz: float,
     smooth_nperseg: int,
@@ -364,9 +362,7 @@ def _export_psd_workbook(
     log(f"Ttot PSD workbook saved: {workbook_path}")
 
 
-# ---------------------------------------------------------------------------
 # Public API
-# ---------------------------------------------------------------------------
 
 
 def export_ttot_traces(
@@ -511,7 +507,7 @@ def analyze_ttot_psd(
             period_duration = trace_end - trace_start
             n_raw_breaths = len(trace_df)
 
-            segment_bounds = _iter_segment_bounds(
+            segment_bounds = _get_segment_bounds(
                 trace_start, trace_end, segment_seconds
             )
 
@@ -646,7 +642,7 @@ def analyze_ttot_psd(
             window_psds = window_psd_lookup[window_key]
             window_mean_psd = np.mean(np.vstack(window_psds), axis=0)
             per_window_psd_frames.append(
-                _mean_psd_table(
+                _psd_curve_table(
                     key_name="Window",
                     key_value=window_key,
                     freq_hz=pooled_freq_hz,
@@ -657,7 +653,7 @@ def analyze_ttot_psd(
             metrics["n_segments"] = len(window_psds)
             per_window_metrics[window_key] = metrics
             comparison_per_window_psd_frames.append(
-                _mean_psd_table(
+                _psd_curve_table(
                     key_name="Window",
                     key_value=window_key,
                     freq_hz=pooled_freq_hz,
@@ -665,7 +661,6 @@ def analyze_ttot_psd(
                 )
             )
 
-    # --- Warn if fmax looks implausible ---
     # Nico found peaks at ~0.02 Hz and ~1 Hz in this mouse data.
     # Flag anything at DC (0 Hz exactly) or approaching Nyquist.
     _FMAX_HIGH_WARN = resample_hz / 2 * 0.8
@@ -681,7 +676,6 @@ def analyze_ttot_psd(
             "Check PSD curve manually."
         )
 
-    # --- Assemble DataFrames ---
     segment_summary_df = pd.DataFrame(
         segment_rows,
         columns=[
@@ -738,12 +732,11 @@ def analyze_ttot_psd(
         else pd.DataFrame(columns=["Window", "Frequency_Hz", "PSD"])
     )
     pooled_psd_df = (
-        _mean_psd_table("", "", pooled_freq_hz, pooled_psd_arrays)
+        _psd_curve_table("", "", pooled_freq_hz, pooled_psd_arrays)
         if pooled_freq_hz is not None and pooled_psd_arrays
         else pd.DataFrame(columns=["Frequency_Hz", "PSD"])
     )
 
-    # --- Export CSVs ---
     rejection_df = (
         pd.DataFrame(rejection_rows)
         if rejection_rows
@@ -809,7 +802,7 @@ def analyze_ttot_psd(
         "AUCBandHz": auc_band_hz,
         "AUCBandStatus": "Exploratory mouse adaptation",
     }
-    window_metrics_df = _metrics_table(
+    window_metrics_df = _psd_metrics_summary_table(
         per_window_metrics, resample_hz, primary_nperseg, window_drift_flags
     )
     window_metrics_df.insert(0, "AnalysisID", analysis_id)

@@ -7,13 +7,13 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 
-from src.core.adaptive_algorithms import (
+from src.core.data_file_parser import detect_skip_rows
+from src.core.logger import log_info, log_warning
+from src.core.signal_processing import (
     butter_highpass_filter,
     butter_lowpass_filter,
     compute_first_derivative,
 )
-from src.core.data_file_parser import detect_skip_rows
-from src.core.logger import log_info, log_warning
 
 PRESSURE_COVERAGE_MAX_GAP_SECONDS = 1.0
 PRESSURE_FILTER_EDGE_MARGIN_SECONDS = 1.0
@@ -137,7 +137,7 @@ def split_data(data: pd.DataFrame, skip_rows: int) -> tuple[pd.DataFrame, pd.Dat
     return meta_data, all_numerical_data
 
 
-def prepare_numerical_data(
+def label_numerical_columns_from_metadata(
     meta_data: pd.DataFrame, all_numerical_data: pd.DataFrame
 ) -> tuple[pd.DataFrame, dict[str, float]]:
     """
@@ -221,7 +221,7 @@ def prepare_numerical_data(
     return all_numerical_data, sample_rates
 
 
-def extract_and_process_data(
+def process_telemetry_to_aligned_frame(
     data: pd.DataFrame,
     behaviour_data: dict[str, list[tuple[int, float, float, float]]] | None,
     alignment_date_time: str,
@@ -237,11 +237,13 @@ def extract_and_process_data(
     skip_rows = detect_skip_rows(data)
     meta_data, all_numerical_data = split_data(data, skip_rows)
 
-    all_numerical_data, sample_rates = prepare_numerical_data(
+    all_numerical_data, sample_rates = label_numerical_columns_from_metadata(
         meta_data, all_numerical_data
     )
 
-    numerical_data = parse_numerical_data(all_numerical_data, align_ref, sample_rates)
+    numerical_data = parse_numerical_values_with_timestamps(
+        all_numerical_data, align_ref, sample_rates
+    )
 
     numerical_data, first_valid_ref = align_and_clean_datetime(numerical_data)
     timeline_ref = align_ref if timeline_origin == "alignment" else first_valid_ref
@@ -401,7 +403,7 @@ def safe_interpolate(
     return pd.DataFrame({"TimeSinceReference": time_axis, signal_name: interp_vals})
 
 
-def parse_numerical_data(
+def parse_numerical_values_with_timestamps(
     all_numerical_data: pd.DataFrame,
     reference_timestamp: datetime,
     sample_rates: dict[str, float],
@@ -642,3 +644,14 @@ def prepare_raw_data(
         )
 
     return df_raw
+
+
+def require_signal_frame(data: dict[str, Any], key: str) -> pd.DataFrame:
+    """Return the named signal dataframe, or an empty one if absent/empty.
+
+    Raises if `key` is "Pressure", since pressure is the required primary signal.
+    """
+    df = data.get(key)
+    if key == "Pressure" and df is None:
+        raise ValueError("Pressure data is required but not found in processed data.")
+    return df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()

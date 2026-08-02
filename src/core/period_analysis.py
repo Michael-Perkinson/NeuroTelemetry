@@ -180,7 +180,6 @@ def compute_respiratory_metrics_for_periods(
             period_peak_times: pd.Series = period_info["peak_times"]
             period_trough_times: pd.Series = period_info["trough_times"]
 
-            # --- binned metrics per period ---
             binned_df = calculate_binned_period_metrics(
                 period_start_time,
                 period_end_time,
@@ -192,7 +191,6 @@ def compute_respiratory_metrics_for_periods(
                 activity_data if activity_data is not None else pd.DataFrame(),
             )
 
-            # --- summary metrics per period ---
             summary_metrics = calculate_valid_period_metrics(
                 period_peak_times, period_trough_times, pressure_data
             )
@@ -208,7 +206,6 @@ def compute_respiratory_metrics_for_periods(
             all_peak_series.append(period_peak_times)
             all_trough_series.append(period_trough_times)
 
-        # Per-window summary across all periods in that window
         window_summary = summarize_respiratory_cycles(
             window_all_peak_series, window_all_trough_series, pressure_data
         )

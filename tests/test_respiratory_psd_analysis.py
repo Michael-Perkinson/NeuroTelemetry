@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.signal import welch
 from scipy.signal.windows import hamming
 
-from src.core.power_spectral_analysis import (
+from src.core.respiratory_psd_analysis import (
     DEFAULT_PSD_DRIFT_R2_THRESHOLD,
     DEFAULT_PSD_NFFT,
     DEFAULT_PSD_OVERLAP_FRACTION,
@@ -16,8 +16,8 @@ from src.core.power_spectral_analysis import (
     DEFAULT_PSD_SMOOTH_NPERSEG,
     _build_ttot_trace,
     _compute_welch_psd,
-    _iter_segment_bounds,
-    _metrics_table,
+    _get_segment_bounds,
+    _psd_metrics_summary_table,
     _resample_segment,
     _segment_drift_r2,
     _trim_period_ends,
@@ -89,7 +89,7 @@ def test_segment_drift_r2_handles_constant_signal_without_division_by_zero() -> 
 
 def test_segments_shorter_than_configured_duration_are_discarded() -> None:
     assert (
-        _iter_segment_bounds(
+        _get_segment_bounds(
             0.0,
             DEFAULT_PSD_SEGMENT_SECONDS - 0.1,
             DEFAULT_PSD_SEGMENT_SECONDS,
@@ -99,7 +99,7 @@ def test_segments_shorter_than_configured_duration_are_discarded() -> None:
 
 
 def test_long_periods_split_into_contiguous_configured_segments() -> None:
-    bounds = _iter_segment_bounds(
+    bounds = _get_segment_bounds(
         0.0,
         3 * DEFAULT_PSD_SEGMENT_SECONDS,
         DEFAULT_PSD_SEGMENT_SECONDS,
@@ -251,7 +251,7 @@ def test_welch_psd_uses_symmetric_hamming_configuration() -> None:
 
 
 def test_window_metrics_warn_when_fmax_is_below_nominal_resolution() -> None:
-    metrics = _metrics_table(
+    metrics = _psd_metrics_summary_table(
         {"window": {"fmax": 0.02, "PSDmax": 1.0, "AUC": 0.5, "n_segments": 1}},
         resample_hz=10.0,
         smooth_nperseg=100,

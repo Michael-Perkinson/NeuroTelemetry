@@ -3,7 +3,9 @@ from pathlib import Path
 import pandas as pd
 
 
-def list_files(directory: Path, extensions: str | list[str] = "csv") -> str:
+def format_directory_listing(
+    directory: Path, extensions: str | list[str] = "csv"
+) -> str:
     """Return a string listing all files with given extension(s) in a directory."""
     if not directory.exists():
         return f"Directory does not exist: {directory}"
@@ -39,7 +41,7 @@ def create_folders_for_graphs(data_file_path: Path) -> tuple[Path, Path, Path, s
     return html_save_folder, svg_save_folder, full_trace_folder, file_base
 
 
-def detect_file_type(path: Path) -> str:
+def detect_data_type(path: Path) -> str:
     """Return 'behaviour', 'photometry', or 'unknown' based on header inspection."""
     try:
         df = pd.read_csv(path, nrows=5)

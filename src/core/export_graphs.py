@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 from src.core.logger import log_info, log_warning
 
 
-# --- Main Full Trace Export ---
 def export_full_time_range_plot(
     main_data: pd.DataFrame,
     temp_data: pd.DataFrame,
@@ -27,19 +26,16 @@ def export_full_time_range_plot(
     atm_pressure_data: pd.DataFrame | None = None,
     behavior_windows: list[tuple[float, float]] | None = None,
 ):
-    # --- Filter dataframes to range ---
     main_filtered = filter_df_by_time(main_data, min_time, max_time)
     temp_filtered = filter_df_by_time(temp_data, min_time, max_time)
     activity_filtered = filter_df_by_time(activity_data, min_time, max_time)
 
-    # --- Handle peaks ---
     valid_peak_times, valid_pre_peak_times = prepare_peaks_for_range(
         valid_peak_times_all, valid_pre_peak_times_all, min_time, max_time
     )
 
     title = f"{behaviour_to_plot}: Full Time Range {min_time:.2f} to {max_time:.2f}"
 
-    # --- Interactive plot ---
     fig_html = create_interactive_plot(
         main_filtered,
         temp_filtered,
@@ -59,7 +55,6 @@ def export_full_time_range_plot(
     fig_html.write_html(save_path_html)
     log_info(f"Saved full trace HTML: {save_path_html}")
 
-    # --- Static plot ---
     save_path_svg = os.path.join(
         full_trace_folder,
         f"{file_base}_full_trace_{min_time:.2f}_to_{max_time:.2f}.svg",
@@ -80,7 +75,6 @@ def export_full_time_range_plot(
     log_info(f"Saved full trace SVG: {save_path_svg}")
 
 
-# --- Extracted helper for peaks ---
 def prepare_peaks_for_range(
     valid_peak_times_all: list[float],
     valid_pre_peak_times_all: list[float],
@@ -101,8 +95,7 @@ def prepare_peaks_for_range(
     return valid_peak_times[:min_len], valid_pre_peak_times[:min_len]
 
 
-# --- Main Behavior-by-Window Export ---
-def export_behavior_images_interactive(
+def export_behavior_plots_per_window(
     time_windows: list[tuple[float, float]],
     pressure_data: pd.DataFrame,
     temp_data: pd.DataFrame,
@@ -170,7 +163,6 @@ def export_behavior_images_interactive(
     log_info("Finished exporting all interactive and static plots to folders.")
 
 
-# --- Plot Helpers ---
 def create_interactive_plot(
     main_df: pd.DataFrame,
     temp_df: pd.DataFrame,
@@ -188,7 +180,6 @@ def create_interactive_plot(
     ymin, ymax = main_df[main_signal_col].min(), main_df[main_signal_col].max()
     yrange = ymax - ymin
 
-    # --- Main signal ---
     main_color = "black" if main_signal_label == "Pressure" else "green"
     fig.add_trace(
         go.Scatter(
@@ -201,7 +192,6 @@ def create_interactive_plot(
         )
     )
 
-    # --- Temperature ---
     if not temp_df.empty:
         fig.add_trace(
             go.Scatter(
@@ -214,7 +204,6 @@ def create_interactive_plot(
             )
         )
 
-    # --- Activity (1-min bins) ---
     if not activity_df.empty:
         act_binned = activity_df.copy()
         act_binned["Bin"] = (act_binned["TimeSinceReference"] // 60).astype(int)
@@ -236,7 +225,6 @@ def create_interactive_plot(
         )
         fig.update_layout(bargap=0)
 
-    # --- Peaks ---
     if peak_times:
         peak_series = main_df.set_index("TimeSinceReference")[main_signal_col]
         peak_vals = peak_series.reindex(pd.Index(peak_times)).dropna()
@@ -251,7 +239,6 @@ def create_interactive_plot(
             )
         )
 
-    # --- Pre-peaks ---
     if pre_peak_times:
         pre_series = main_df.set_index("TimeSinceReference")[main_signal_col]
         pre_vals = pre_series.reindex(pd.Index(pre_peak_times)).dropna()
@@ -266,7 +253,6 @@ def create_interactive_plot(
             )
         )
 
-    # --- Atmospheric Pressure ---
     if (
         atm_pressure_data is not None
         and not atm_pressure_data.empty
@@ -293,7 +279,6 @@ def create_interactive_plot(
             )
         )
 
-    # --- Behavior window shading ---
     if behavior_windows:
         for bw_start, bw_end in behavior_windows:
             fig.add_vrect(
@@ -304,7 +289,6 @@ def create_interactive_plot(
                 layer="below",
             )
 
-    # --- Layout ---
     fig.update_layout(
         title=title,
         xaxis_title="Time (minutes)",
@@ -346,7 +330,6 @@ def create_static_plot(
     ymin, ymax = main_df[main_signal_col].min(), main_df[main_signal_col].max()
     yrange = ymax - ymin
 
-    # --- Main signal ---
     main_color = "black" if main_signal_label == "Pressure" else "green"
     ax1.plot(
         main_df["TimeSinceReference"] / 60,
@@ -358,7 +341,6 @@ def create_static_plot(
     ax1.set_ylabel(main_signal_label, color=main_color)
     ax1.set_ylim(ymin, ymax)
 
-    # --- Activity (1-min bins) ---
     if not activity_df.empty:
         act_binned = activity_df.copy()
         act_binned["Bin"] = (act_binned["TimeSinceReference"] // 60).astype(int)
@@ -376,7 +358,6 @@ def create_static_plot(
             zorder=0,
         )
 
-    # --- Temperature ---
     if not temp_df.empty:
         ax2 = ax1.twinx()
         ax2.plot(
@@ -387,7 +368,6 @@ def create_static_plot(
         )
         ax2.set_ylabel("Temperature", color="red")
 
-    # --- Peaks ---
     if peak_times:
         peak_series = main_df.set_index("TimeSinceReference")[main_signal_col]
         peak_vals = peak_series.reindex(pd.Index(peak_times)).dropna()
@@ -400,7 +380,6 @@ def create_static_plot(
             label="Peaks",
         )
 
-    # --- Pre-peaks ---
     if pre_peak_times:
         pre_series = main_df.set_index("TimeSinceReference")[main_signal_col]
         pre_vals = pre_series.reindex(pd.Index(pre_peak_times)).dropna()
@@ -413,7 +392,6 @@ def create_static_plot(
             label="Pre-Peaks",
         )
 
-    # --- Atmospheric Pressure ---
     if (
         atm_pressure_data is not None
         and not atm_pressure_data.empty
@@ -441,12 +419,10 @@ def create_static_plot(
         )
         ax3.set_ylabel("Atm. Pressure (mmHg)", color="steelblue")
 
-    # --- Behavior window shading ---
     if behavior_windows:
         for bw_start, bw_end in behavior_windows:
             ax1.axvspan(bw_start / 60, bw_end / 60, alpha=0.08, color="green")
 
-    # --- Final touches ---
     ax1.set_title(title)
     ax1.legend(loc="upper left")
     ax1.grid(True)

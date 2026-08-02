@@ -9,7 +9,10 @@ from uuid import uuid4
 
 import pytest
 
-from src.controllers.pressure_controller import load_data, run_pressure_pipeline
+from src.controllers.pressure_controller import (
+    load_pressure_data,
+    run_pressure_pipeline,
+)
 
 DATA_ROOT = Path("data") / "Day 2 (25-04-24) Pro"
 TELEMETRY_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 Ponemah.csv"
@@ -17,7 +20,7 @@ EVENT_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 BORIS.csv"
 
 
 def _run_pipeline(output_path: Path, log_callback) -> dict | None:
-    telemetry_df, event_df = load_data(TELEMETRY_PATH, EVENT_PATH)
+    telemetry_df, event_df = load_pressure_data(TELEMETRY_PATH, EVENT_PATH)
 
     return run_pressure_pipeline(
         telemetry_df=telemetry_df,
@@ -63,15 +66,19 @@ def test_pressure_pipeline_handles_failure_gracefully(local_tmpdir: Path) -> Non
     output_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
 
     # Create minimal mock dataframes
-    telemetry_df = pd.DataFrame({
-        "Timestamp": [0.0, 1.0, 2.0],
-        "Pressure": [100.0, 101.0, 99.0],
-    })
-    event_df = pd.DataFrame({
-        "Behavior": ["Time spent sleeping", "Time spent sleeping"],
-        "StartTime": [0.0, 1.5],
-        "EndTime": [1.0, 2.5],
-    })
+    telemetry_df = pd.DataFrame(
+        {
+            "Timestamp": [0.0, 1.0, 2.0],
+            "Pressure": [100.0, 101.0, 99.0],
+        }
+    )
+    event_df = pd.DataFrame(
+        {
+            "Behavior": ["Time spent sleeping", "Time spent sleeping"],
+            "StartTime": [0.0, 1.5],
+            "EndTime": [1.0, 2.5],
+        }
+    )
 
     # Patch structure_behaviour_events to raise an exception early in the pipeline
     with patch(

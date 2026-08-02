@@ -42,7 +42,9 @@ def test_batch_accepts_new_and_legacy_extra_probe_columns(
     pd.DataFrame([row]).to_csv(config_path, index=False)
 
     with (
-        patch("scripts.batch_run.load_data", return_value=(object(), object())),
+        patch(
+            "scripts.batch_run.load_pressure_data", return_value=(object(), object())
+        ),
         patch(
             "scripts.batch_run.run_pressure_pipeline",
             return_value={"analysis_folder": local_tmpdir / "output"},
@@ -107,7 +109,9 @@ def test_batch_reads_native_excel_datetime_and_uses_chosen_output_root(
     assert isinstance(loaded.loc[0, "video_time"], pd.Timestamp)
 
     with (
-        patch("scripts.batch_run.load_data", return_value=(object(), object())),
+        patch(
+            "scripts.batch_run.load_pressure_data", return_value=(object(), object())
+        ),
         patch(
             "scripts.batch_run.run_pressure_pipeline",
             return_value={

@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 
 from src.core.respiratory_metrics import (
-    calculate_respiratory_metrics,
-    calculate_respiratory_metrics_raw,
+    calculate_period_respiratory_metrics,
+    calculate_period_respiratory_metrics_raw,
     compute_atm_pressure_session_summary,
     compute_atm_pressure_time_bins,
 )
@@ -20,11 +20,11 @@ def _make_pressure_data() -> pd.DataFrame:
     )
 
 
-def test_calculate_respiratory_metrics_returns_expected_cycle_means() -> None:
+def test_calculate_period_respiratory_metrics_returns_expected_cycle_means() -> None:
     peak_times = pd.Series([0.5, 1.5, 2.5], index=[1, 3, 5])
     trough_times = pd.Series([0.0, 1.0, 2.0], index=[0, 2, 4])
 
-    metrics = calculate_respiratory_metrics(
+    metrics = calculate_period_respiratory_metrics(
         period_peaks=peak_times,
         peak_indices=peak_times,
         trough_indices=trough_times,
@@ -41,8 +41,10 @@ def test_calculate_respiratory_metrics_returns_expected_cycle_means() -> None:
     assert metrics["Pressure Difference"] == 2.0
 
 
-def test_calculate_respiratory_metrics_returns_nan_for_insufficient_cycles() -> None:
-    metrics = calculate_respiratory_metrics(
+def test_calculate_period_respiratory_metrics_returns_nan_for_insufficient_cycles() -> (
+    None
+):
+    metrics = calculate_period_respiratory_metrics(
         period_peaks=pd.Series([0.5], index=[1]),
         peak_indices=pd.Series([0.5], index=[1]),
         trough_indices=pd.Series([0.0], index=[0]),
@@ -55,11 +57,11 @@ def test_calculate_respiratory_metrics_returns_nan_for_insufficient_cycles() -> 
     assert np.isnan(metrics["Frequency_Hz"])
 
 
-def test_calculate_respiratory_metrics_raw_returns_per_cycle_arrays() -> None:
+def test_calculate_period_respiratory_metrics_raw_returns_per_cycle_arrays() -> None:
     peak_times = pd.Series([0.5, 1.5, 2.5], index=[1, 3, 5])
     trough_times = pd.Series([0.0, 1.0, 2.0], index=[0, 2, 4])
 
-    raw = calculate_respiratory_metrics_raw(
+    raw = calculate_period_respiratory_metrics_raw(
         period_peaks=peak_times,
         peak_indices=peak_times,
         trough_indices=trough_times,

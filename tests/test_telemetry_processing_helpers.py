@@ -7,18 +7,19 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from src.core.data_alignment import (
+from src.core.telemetry_processing import (
     _decide_dayfirst_from_reference,
     _to_datetime_with_ms,
     adjust_behaviours,
     align_and_clean_datetime,
     build_output_frames,
     continuous_signal_coverage,
-    parse_numerical_data,
+    label_numerical_columns_from_metadata,
+    parse_numerical_values_with_timestamps,
     parse_reference_timestamp,
-    prepare_numerical_data,
     prepare_raw_data,
     preprocess_pressure_data,
+    require_signal_frame,
     safe_interpolate,
     split_data,
     trim_coverage_intervals,
@@ -42,7 +43,9 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         self.assertEqual(meta.iloc[0, 1], "Pressure")
         self.assertEqual(numerical.iloc[0, 0], "Time")
 
-    def test_prepare_numerical_data_keeps_first_duplicate_signal(self) -> None:
+    def test_label_numerical_columns_from_metadata_keeps_first_duplicate_signal(
+        self,
+    ) -> None:
         meta = pd.DataFrame(
             [
                 ["# Col 2:", "Pressure", None, None, "Rate: 500"],
@@ -59,7 +62,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             ]
         )
 
-        cleaned, sample_rates = prepare_numerical_data(meta, numerical)
+        cleaned, sample_rates = label_numerical_columns_from_metadata(meta, numerical)
 
         self.assertEqual(
             cleaned.columns.tolist(),
@@ -80,7 +83,9 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             {"Pressure": 500.0, "Temp": 10.0, "Activity": 20.0, "AtmPressure": 1.0},
         )
 
-    def test_prepare_numerical_data_rejects_unexpected_rate_format(self) -> None:
+    def test_label_numerical_columns_from_metadata_rejects_unexpected_rate_format(
+        self,
+    ) -> None:
         meta = pd.DataFrame([["# Col 2:", "Pressure", None, None, "500 Hz"]])
         numerical = pd.DataFrame(
             [
@@ -90,9 +95,11 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "Unexpected rate format"):
-            prepare_numerical_data(meta, numerical)
+            label_numerical_columns_from_metadata(meta, numerical)
 
-    def test_prepare_numerical_data_rejects_zero_sample_rate(self) -> None:
+    def test_label_numerical_columns_from_metadata_rejects_zero_sample_rate(
+        self,
+    ) -> None:
         meta = pd.DataFrame([["# Col 2:", "Pressure", None, None, "Rate: 0"]])
         numerical = pd.DataFrame(
             [
@@ -104,9 +111,11 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, r"Invalid sample rate for 'Pressure': 0.*must be positive"
         ):
-            prepare_numerical_data(meta, numerical)
+            label_numerical_columns_from_metadata(meta, numerical)
 
-    def test_prepare_numerical_data_rejects_negative_sample_rate(self) -> None:
+    def test_label_numerical_columns_from_metadata_rejects_negative_sample_rate(
+        self,
+    ) -> None:
         meta = pd.DataFrame([["# Col 2:", "Activity", None, None, "Rate: -100"]])
         numerical = pd.DataFrame(
             [
@@ -118,9 +127,9 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, r"Invalid sample rate for 'Activity': -100.*must be positive"
         ):
-            prepare_numerical_data(meta, numerical)
+            label_numerical_columns_from_metadata(meta, numerical)
 
-    def test_prepare_numerical_data_warns_on_unrecognized_signal_names(
+    def test_label_numerical_columns_from_metadata_warns_on_unrecognized_signal_names(
         self,
     ) -> None:
         """Test that unrecognized signal names in metadata are logged as warnings
@@ -139,8 +148,10 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             ]
         )
 
-        with patch("src.core.data_alignment.log_warning") as mock_warn:
-            cleaned, sample_rates = prepare_numerical_data(meta, numerical)
+        with patch("src.core.telemetry_processing.log_warning") as mock_warn:
+            cleaned, sample_rates = label_numerical_columns_from_metadata(
+                meta, numerical
+            )
 
             # Verify that recognized signals are still present
             self.assertIn("Temp", cleaned.columns)
@@ -233,7 +244,9 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         self.assertEqual(reference, datetime(2025, 11, 1, 16, 59, 59))
 
-    def test_parse_numerical_data_coerces_signal_columns_and_parses_time(self) -> None:
+    def test_parse_numerical_values_with_timestamps_coerces_and_parses_time(
+        self,
+    ) -> None:
         numerical = pd.DataFrame(
             {
                 "DateTime": [
@@ -244,7 +257,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             }
         )
 
-        parsed = parse_numerical_data(
+        parsed = parse_numerical_values_with_timestamps(
             numerical,
             datetime(2025, 11, 1, 17, 5, 9),
             {"Pressure": 2.0},
@@ -371,7 +384,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             }
         )
 
-        with patch("src.core.data_alignment.log_warning") as mock_warn:
+        with patch("src.core.telemetry_processing.log_warning") as mock_warn:
             cleaned, new_ref = align_and_clean_datetime(numerical)
 
             # Assert that log_warning was called with a message about backwards jumps
@@ -414,7 +427,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         )
 
         with patch(
-            "src.core.data_alignment.preprocess_pressure_data",
+            "src.core.telemetry_processing.preprocess_pressure_data",
             return_value=pressure_out,
         ):
             processed = build_output_frames(
@@ -595,6 +608,24 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         np.testing.assert_allclose(
             raw["Temp"], [np.nan, 36.0, 37.0, 38.0, np.nan], equal_nan=True
+        )
+
+    def test_require_signal_frame_requires_pressure_and_normalizes_optional_data(
+        self,
+    ) -> None:
+        with self.assertRaisesRegex(ValueError, "Pressure data is required"):
+            require_signal_frame({}, "Pressure")
+
+        self.assertTrue(require_signal_frame({"Temp": None}, "Temp").empty)
+        self.assertTrue(
+            require_signal_frame({"Activity": pd.DataFrame()}, "Activity").empty
+        )
+
+        pressure_df = pd.DataFrame({"Pressure": [1.0]})
+        self.assertTrue(
+            require_signal_frame({"Pressure": pressure_df}, "Pressure").equals(
+                pressure_df
+            )
         )
 
 

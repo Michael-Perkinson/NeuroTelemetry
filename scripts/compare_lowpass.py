@@ -20,12 +20,12 @@ from scipy.signal import butter, filtfilt
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.data_alignment import extract_and_process_data
 from src.core.data_file_parser import retrieve_telemetry_data
 from src.core.event_file_parser import (
     read_and_process_event_file,
     structure_behaviour_events,
 )
+from src.core.telemetry_processing import process_telemetry_to_aligned_frame
 
 CUTOFFS = [20, 30, 40, 50, 60, 75, 100]
 
@@ -40,7 +40,7 @@ def load_pressure(telemetry_csv, event_csv, video_time):
     telemetry_df = retrieve_telemetry_data(Path(telemetry_csv))
     event_df = read_and_process_event_file(Path(event_csv))
     behaviour_data = structure_behaviour_events(event_df)
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry_df,
         behaviour_data,
         video_time,

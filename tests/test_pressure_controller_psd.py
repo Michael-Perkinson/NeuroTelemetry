@@ -6,7 +6,10 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
-from src.controllers.pressure_controller import load_data, run_pressure_pipeline
+from src.controllers.pressure_controller import (
+    load_pressure_data,
+    run_pressure_pipeline,
+)
 
 DATA_ROOT = Path("data") / "B5 night"
 TELEMETRY_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 Ponemah.csv"
@@ -21,7 +24,7 @@ EVENT_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 BORIS.csv"
 )
 class TestPressurePipelinePSD(unittest.TestCase):
     def test_pipeline_exports_psd_outputs(self) -> None:
-        telemetry_df, event_df = load_data(TELEMETRY_PATH, EVENT_PATH)
+        telemetry_df, event_df = load_pressure_data(TELEMETRY_PATH, EVENT_PATH)
 
         base_dir = Path("test_outputs")
         base_dir.mkdir(exist_ok=True)

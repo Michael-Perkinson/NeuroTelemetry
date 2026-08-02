@@ -38,7 +38,7 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
     return df[["event", "instance", "start", "end", "duration"]]
 
 
-def select_time_windows(
+def select_fully_covered_windows(
     behaviour_to_plot: str,
     behaviour_data: dict[str, list[tuple[int, float, float, float]]],
     reference_timestamp: pd.Timestamp,

@@ -5,8 +5,6 @@ from pathlib import Path
 import pandas as pd
 
 from src import __version__
-from src.core.adaptive_algorithms import compute_time_window, get_time_bounds
-from src.core.data_alignment import extract_and_process_data, prepare_raw_data
 from src.core.data_file_parser import (
     read_and_process_photometry_file,
     retrieve_telemetry_data,
@@ -17,7 +15,7 @@ from src.core.export_data import (
 from src.core.export_graphs import (
     export_full_time_range_plot,
 )
-from src.core.file_handling import create_folders_for_graphs, list_files
+from src.core.file_utilities import create_folders_for_graphs, format_directory_listing
 from src.core.logger import log_exception, log_info
 from src.core.photometry_metrics import (
     bin_signal,
@@ -26,6 +24,11 @@ from src.core.photometry_metrics import (
     trim_to_window,
 )
 from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
+from src.core.signal_processing import compute_time_window, get_time_bounds
+from src.core.telemetry_processing import (
+    prepare_raw_data,
+    process_telemetry_to_aligned_frame,
+)
 
 MAIN_SIGNAL = "dFoF_465"
 
@@ -45,8 +48,12 @@ def load_photometry_data(
 
     except Exception as e:
         log_exception(e)
-        photometry_dir_files = list_files(photometry_path.parent, ["csv", "txt"])
-        telemetry_dir_files = list_files(telemetry_path.parent, ["csv", "txt"])
+        photometry_dir_files = format_directory_listing(
+            photometry_path.parent, ["csv", "txt"]
+        )
+        telemetry_dir_files = format_directory_listing(
+            telemetry_path.parent, ["csv", "txt"]
+        )
 
         error_message = (
             f"Data loading failed.\n\n"
@@ -82,7 +89,6 @@ def run_photometry_pipeline(
 
     start_time = datetime.now()
 
-    # ---- Setup analysis folder ----
     file_base = telemetry_path.stem
     analysis_folder = (
         telemetry_path.parent / "extracted_data" / f"{file_base}_PhotometryAnalysis"
@@ -110,7 +116,7 @@ def run_photometry_pipeline(
     excel_filename = f"{file_base}_photometry_{date_str}.xlsx"
 
     log("Processing telemetry...")
-    processed_telemetry = extract_and_process_data(
+    processed_telemetry = process_telemetry_to_aligned_frame(
         telemetry_df,
         behaviour_data=None,
         alignment_date_time=photometry_start_time,
@@ -174,7 +180,6 @@ def run_photometry_pipeline(
         main_signal_label="Photometry",
     )
 
-    # ---- Excel ----
     try:
         log("Saving Excel output...")
         export_binned_data_to_excel(

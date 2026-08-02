@@ -8,7 +8,6 @@ import pytest
 from src.core.data_file_parser import (
     detect_skip_rows,
     read_and_process_photometry_file,
-    safe_get_df,
 )
 
 
@@ -60,14 +59,3 @@ def test_detect_skip_rows_returns_first_time_row() -> None:
     )
 
     assert detect_skip_rows(raw) == 2
-
-
-def test_safe_get_df_requires_pressure_and_normalizes_missing_optional_data() -> None:
-    with pytest.raises(ValueError, match="Pressure data is required"):
-        safe_get_df({}, "Pressure")
-
-    assert safe_get_df({"Temp": None}, "Temp").empty
-    assert safe_get_df({"Activity": pd.DataFrame()}, "Activity").empty
-
-    pressure_df = pd.DataFrame({"Pressure": [1.0]})
-    assert safe_get_df({"Pressure": pressure_df}, "Pressure").equals(pressure_df)

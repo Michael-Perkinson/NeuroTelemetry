@@ -23,7 +23,6 @@ def analyse_photometry_peaks(
     t = photometry_data["TimeSinceReference"].to_numpy()
     y = photometry_data[main_signal_col.strip()].to_numpy()
 
-    # --- Peak detection ---
     peaks, _ = find_peaks(y, prominence=prominence)
     if len(peaks) == 0:
         return pd.DataFrame(), [], {"n_peaks": 0}
@@ -31,24 +30,19 @@ def analyse_photometry_peaks(
     peak_times = t[peaks]
     peak_vals = y[peaks]
 
-    # Widths
     widths_res = peak_widths(y, peaks, rel_height=0.5)
     widths = widths_res[0] * np.median(np.diff(t))
 
-    # Amplitude threshold
     keep_mask = peak_vals > amp_thresh
     peak_times = peak_times[keep_mask]
     amplitudes = peak_vals[keep_mask]
     widths = widths[keep_mask]
 
-    # ISI (sec between peaks)
     isi = np.diff(peak_times)
     isi = np.append(isi, np.nan)
 
-    # Cumulative peak count
     peak_count = np.arange(1, len(peak_times) + 1)
 
-    # --- Build dataframe ---
     per_peak_df = pd.DataFrame(
         {
             "PeakTime": peak_times,
@@ -59,7 +53,6 @@ def analyse_photometry_peaks(
         }
     )
 
-    # --- Summary (includes global peaks per min) ---
     window_minutes = (
         photometry_data["TimeSinceReference"].max()
         - photometry_data["TimeSinceReference"].min()

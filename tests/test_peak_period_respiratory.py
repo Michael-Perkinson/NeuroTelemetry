@@ -9,8 +9,8 @@ from src.core.peak_detection import find_shoulders
 from src.core.period_analysis import identify_new_periods
 from src.core.respiratory_metrics import (
     calculate_binned_period_metrics,
-    calculate_respiratory_metrics,
-    calculate_respiratory_metrics_raw,
+    calculate_period_respiratory_metrics,
+    calculate_period_respiratory_metrics_raw,
     compute_atm_pressure_session_summary,
     compute_atm_pressure_time_bins,
     summarize_respiratory_cycles,
@@ -76,8 +76,10 @@ class TestPeriodAnalysis(unittest.TestCase):
 
 
 class TestRespiratoryMetrics(unittest.TestCase):
-    def test_calculate_respiratory_metrics_returns_expected_cycle_summary(self) -> None:
-        metrics = calculate_respiratory_metrics(
+    def test_calculate_period_respiratory_metrics_returns_expected_cycle_summary(
+        self,
+    ) -> None:
+        metrics = calculate_period_respiratory_metrics(
             _peak_series(),
             _peak_series(),
             _trough_series(),
@@ -95,8 +97,10 @@ class TestRespiratoryMetrics(unittest.TestCase):
         self.assertAlmostEqual(float(metrics["Pressure Difference"]), 5.0)
         self.assertAlmostEqual(float(metrics["T_I_std"]), 0.0)
 
-    def test_calculate_respiratory_metrics_returns_nan_when_too_short(self) -> None:
-        metrics = calculate_respiratory_metrics(
+    def test_calculate_period_respiratory_metrics_returns_nan_when_too_short(
+        self,
+    ) -> None:
+        metrics = calculate_period_respiratory_metrics(
             pd.Series([1.0], index=[1]),
             pd.Series([1.0], index=[1]),
             pd.Series([0.5], index=[0]),
@@ -107,8 +111,10 @@ class TestRespiratoryMetrics(unittest.TestCase):
         self.assertTrue(np.isnan(metrics["T_I_mean"]))
         self.assertTrue(np.isnan(metrics["T_TOT_std"]))
 
-    def test_calculate_respiratory_metrics_raw_returns_per_cycle_arrays(self) -> None:
-        raw = calculate_respiratory_metrics_raw(
+    def test_calculate_period_respiratory_metrics_raw_returns_per_cycle_arrays(
+        self,
+    ) -> None:
+        raw = calculate_period_respiratory_metrics_raw(
             _peak_series(),
             _peak_series(),
             _trough_series(),

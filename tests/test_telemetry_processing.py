@@ -3,10 +3,10 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from src.core.data_alignment import (
+from src.core.telemetry_processing import (
     align_and_clean_datetime,
     build_output_frames,
-    extract_and_process_data,
+    process_telemetry_to_aligned_frame,
 )
 
 
@@ -32,7 +32,7 @@ def test_behaviour_alignment_uses_video_start_and_first_valid_sample_directly() 
         ]
     )
 
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry,
         {"sleep": [(1, 360.0, 400.0, 40.0)]},
         alignment_date_time="01/01/2025 10:00:00 AM",
@@ -52,7 +52,7 @@ def test_behaviour_alignment_accepts_video_minutes_after_first_valid_sample() ->
         ]
     )
 
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry,
         {"sleep": [(1, 0.0, 40.0, 40.0)]},
         alignment_date_time="25/04/2024 10:07:06 AM",
@@ -72,7 +72,7 @@ def test_alignment_origin_keeps_absolute_offset_when_reference_precedes_data() -
         ]
     )
 
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry,
         behaviour_data=None,
         alignment_date_time="01/01/2025 10:00:00 AM",
@@ -91,7 +91,7 @@ def test_alignment_origin_uses_video_zero_for_telemetry_and_behaviour() -> None:
         ]
     )
 
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry,
         {"sleep": [(1, 280.0, 320.0, 40.0)]},
         alignment_date_time="01/01/2025 10:00:00 AM",
@@ -111,7 +111,7 @@ def test_alignment_origin_keeps_negative_time_and_trims_leading_nan() -> None:
         ]
     )
 
-    processed = extract_and_process_data(
+    processed = process_telemetry_to_aligned_frame(
         telemetry,
         behaviour_data=None,
         alignment_date_time="01/01/2025 10:00:00 AM",
@@ -127,7 +127,7 @@ def test_extract_rejects_unknown_timeline_origin() -> None:
     telemetry = _temp_telemetry([("01/01/2025 10:00:00 AM", "36.0")])
 
     with pytest.raises(ValueError, match="timeline_origin"):
-        extract_and_process_data(
+        process_telemetry_to_aligned_frame(
             telemetry,
             behaviour_data=None,
             alignment_date_time="01/01/2025 10:00:00 AM",

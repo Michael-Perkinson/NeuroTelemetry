@@ -7,7 +7,7 @@ import pandas as pd
 from src.core.logger import log_error, log_info
 
 
-def create_summary_data(
+def summarize_peak_counts_per_window(
     valid_peak_times_all: list[float],
     updated_valid_periods: list[tuple[float, float]],
     time_windows: list[tuple[float, float]],
@@ -20,7 +20,6 @@ def create_summary_data(
     summary_data = []
 
     for window_start_time, window_end_time in time_windows:
-        # Time window block
         summary_data.append(
             {
                 "Description": "Overall Time Window",
@@ -32,7 +31,6 @@ def create_summary_data(
             }
         )
 
-        # Valid periods within this window
         for valid_start, valid_end in updated_valid_periods:
             if (
                 window_start_time <= valid_start <= window_end_time
@@ -67,14 +65,13 @@ def insert_blank_rows(dataframes: list[pd.DataFrame], group_key: str) -> pd.Data
             continue
         current_group = df[group_key].iloc[0]
         if last_group is not None and current_group != last_group:
-            # Append one blank row
             rows.append(pd.DataFrame([[""] * len(df.columns)], columns=df.columns))
         rows.append(df)
         last_group = current_group
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 
-def build_export_data(
+def build_metrics_export_tables(
     all_metrics: dict,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Prepare per-bin, per-period, and per-window dataframes with spacing."""
@@ -84,14 +81,11 @@ def build_export_data(
         if window_key == "GlobalSummary":
             continue
 
-        # --- Window-level summary
         window_summary = window_content.get("WindowSummary", {})
         if window_summary:
             per_window_rows.append({"Window": window_key, **window_summary})
 
-        # --- Per-period and per-bin data
         for period_name, period_data in window_content.get("Periods", {}).items():
-            # Binned data
             binned_df = period_data.get("Binned", pd.DataFrame())
 
             if not binned_df.empty:
@@ -101,15 +95,7 @@ def build_export_data(
                 per_bin_rows.append(binned_df)
             else:
                 continue
-                # # Placeholder row for too-short or empty periods
-                # placeholder = pd.DataFrame([{
-                #     "Window": window_key,
-                #     "Period": period_name,
-                #     "Note": "Not enough time for binning"
-                # }])
-                # per_bin_rows.append(placeholder)
 
-            # Summary data
             period_summary = period_data.get("Summary", {})
             if period_summary:
                 summary_df = pd.DataFrame(
@@ -117,7 +103,6 @@ def build_export_data(
                 )
                 per_period_rows.append(summary_df)
 
-    # --- Add spacing between logical groups
     per_bin_df = insert_blank_rows(per_bin_rows, "Period")
     per_period_df = insert_blank_rows(per_period_rows, "Window")
     per_window_df = pd.DataFrame(per_window_rows)
@@ -148,7 +133,9 @@ def export_data_to_excel(
             psd_pooled_df = psd_results.get("pooled_psd", pd.DataFrame())
             psd_segment_summary_df = psd_results.get("segment_summary", pd.DataFrame())
 
-        per_bin_df, per_period_df, per_window_df = build_export_data(all_metrics)
+        per_bin_df, per_period_df, per_window_df = build_metrics_export_tables(
+            all_metrics
+        )
 
         date_str = datetime.now().strftime("%Y%m%d")
         excel_path = analysis_folder / f"{analysis_folder.name}_{date_str}.xlsx"

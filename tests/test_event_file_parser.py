@@ -9,7 +9,7 @@ import pytest
 from src.core.event_file_parser import (
     classify_behaviour_windows,
     read_and_process_event_file,
-    select_time_windows,
+    select_fully_covered_windows,
     structure_behaviour_events,
 )
 
@@ -98,7 +98,7 @@ def test_structure_behaviour_events_groups_by_event() -> None:
     }
 
 
-def test_select_time_windows_filters_by_behaviour_duration_and_cutoff() -> None:
+def test_select_fully_covered_windows_filters_by_duration_and_cutoff() -> None:
     behaviour_data = {
         "sleep": [
             (1, 10.0, 50.0, 40.0),
@@ -110,7 +110,7 @@ def test_select_time_windows_filters_by_behaviour_duration_and_cutoff() -> None:
         "eat": [(1, 30.0, 70.0, 40.0)],
     }
 
-    windows = select_time_windows(
+    windows = select_fully_covered_windows(
         behaviour_to_plot="sleep",
         behaviour_data=behaviour_data,
         reference_timestamp=pd.Timestamp("2025-01-01T00:00:00"),
@@ -119,9 +119,9 @@ def test_select_time_windows_filters_by_behaviour_duration_and_cutoff() -> None:
     assert windows == [(10.0, 50.0), (5_350.0, 5_400.0)]
 
 
-def test_select_time_windows_returns_empty_for_missing_behaviour() -> None:
+def test_select_fully_covered_windows_returns_empty_for_missing_behaviour() -> None:
     assert (
-        select_time_windows(
+        select_fully_covered_windows(
             behaviour_to_plot="sleep",
             behaviour_data={},
             reference_timestamp=pd.Timestamp("1970-01-01T00:00:00"),
@@ -156,7 +156,7 @@ def test_classify_behaviour_windows_reports_telemetry_coverage() -> None:
         "filtered",
         "filtered",
     ]
-    assert select_time_windows(
+    assert select_fully_covered_windows(
         "sleep",
         behaviour_data,
         pd.Timestamp("2025-01-01"),
@@ -186,7 +186,7 @@ def test_classify_behaviour_windows_detects_internal_telemetry_gap() -> None:
         "partially_covered",
         "partially_covered",
     ]
-    assert select_time_windows(
+    assert select_fully_covered_windows(
         "sleep",
         behaviour_data,
         pd.Timestamp("2025-01-01"),

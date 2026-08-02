@@ -1,5 +1,3 @@
-# gui_app.py
-
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -29,11 +27,14 @@ from src.controllers.photometry_controller import (
     load_photometry_data,
     run_photometry_pipeline,
 )
-from src.controllers.pressure_controller import load_data, run_pressure_pipeline
-from src.core.file_handling import detect_file_type
+from src.controllers.pressure_controller import (
+    load_pressure_data,
+    run_pressure_pipeline,
+)
+from src.core.file_utilities import detect_data_type
 
 
-class DataConfigGUI(QWidget):
+class AnalysisWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setStyleSheet("""
@@ -64,37 +65,31 @@ class DataConfigGUI(QWidget):
         self.telemetry_path = self.create_file_selector("Telemetry Data File")
         self.secondary_path = self.create_file_selector("Behaviour or Photometry File")
 
-        # --- Option panels stacked ---
         self.stack = QStackedWidget()
         self.behaviour_panel = self.build_behaviour_panel()
         self.photometry_panel = self.build_photometry_panel()
         self.stack.addWidget(self.behaviour_panel)  # index 0
         self.stack.addWidget(self.photometry_panel)  # index 1
         self.main_layout.addWidget(self.stack)
-
-        # Start hidden
         self.stack.setVisible(False)
         self.file_mode = "unknown"
 
-        # Run button
         self.run_button = QPushButton("Run Analysis")
         self.run_button.clicked.connect(self.run_analysis)
         self.main_layout.addWidget(self.run_button)
         self.run_button.setEnabled(False)
 
-        # Log
         self.add_global_section_title("Log")
         self.log_box = QPlainTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setStyleSheet("background-color: #1e1e1e; color: white;")
         self.main_layout.addWidget(self.log_box)
 
-        # React to file selection / typing
         self.secondary_path.textChanged.connect(self.on_secondary_file_changed)
 
         self.restore_settings()
 
-    # -------------------- UI Builders --------------------
+    # UI builders
 
     def add_global_section_title(self, text):
         """Adds a title into the main layout (global section)."""
@@ -105,12 +100,6 @@ class DataConfigGUI(QWidget):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(label)
         self.main_layout.addLayout(layout)
-
-    def make_section_title(self, text):
-        """Returns a QLabel for titles inside panels."""
-        label = QLabel(text)
-        label.setStyleSheet("font-weight: bold;")
-        return label
 
     def create_file_selector(self, label):
         layout = QHBoxLayout()
@@ -129,27 +118,6 @@ class DataConfigGUI(QWidget):
         layout.addWidget(btn)
         self.main_layout.addLayout(layout)
         return entry
-
-    def create_line_input(self, label, default=""):
-        layout = QHBoxLayout()
-        layout.setContentsMargins(20, 0, 0, 0)
-        lbl = QLabel(label)
-        lbl.setFixedWidth(220)
-        entry = QLineEdit()
-        entry.setText(default)
-        layout.addWidget(lbl)
-        layout.addWidget(entry)
-        return layout, entry
-
-    def create_datetime_input(self, label):
-        layout = QHBoxLayout()
-        layout.setContentsMargins(20, 0, 0, 0)
-        lbl = QLabel(label)
-        lbl.setFixedWidth(220)
-        dt = self.make_datetime_edit()
-        layout.addWidget(lbl)
-        layout.addWidget(dt)
-        return layout, dt
 
     def create_spin_box(self, default):
         box = QSpinBox()
@@ -253,18 +221,18 @@ class DataConfigGUI(QWidget):
 
         return panel
 
-    # -------------------- Helpers --------------------
+    # Helpers
 
     def _toggle_atm_bin_visibility(self, checked: bool):
         self.atm_bin_lbl.setVisible(checked)
         self.atm_bin_size.setVisible(checked)
 
     def clear_settings(self):
-        QSettings("NeuroTelemetry", "DataConfigGUI").clear()
+        QSettings("NeuroTelemetry", "AnalysisWindow").clear()
         self.log("Saved settings cleared.")
 
     def save_settings(self):
-        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        s = QSettings("NeuroTelemetry", "AnalysisWindow")
         s.setValue("behaviour_input", self.behaviour_input.text())
         s.setValue("bin_size", self.bin_size.value())
         s.setValue("atm_bin_size", self.atm_bin_size.value())
@@ -275,7 +243,7 @@ class DataConfigGUI(QWidget):
         s.setValue("photo_bin_min", self.photo_bin_min.value())
 
     def restore_settings(self):
-        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        s = QSettings("NeuroTelemetry", "AnalysisWindow")
         self.behaviour_input.setText(
             cast(str, s.value("behaviour_input", "Time spent sleeping", type=str))
         )
@@ -302,7 +270,7 @@ class DataConfigGUI(QWidget):
         return dt
 
     def select_file(self, target_entry):
-        s = QSettings("NeuroTelemetry", "DataConfigGUI")
+        s = QSettings("NeuroTelemetry", "AnalysisWindow")
         last_dir = cast(str, s.value("last_directory", "", type=str))
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -325,7 +293,7 @@ class DataConfigGUI(QWidget):
             self.file_mode = "unknown"
             return
 
-        ftype = detect_file_type(path)
+        ftype = detect_data_type(path)
         mapping = {
             "behaviour": self.behaviour_panel,
             "photometry": self.photometry_panel,
@@ -351,7 +319,7 @@ class DataConfigGUI(QWidget):
         ts = datetime.now().strftime("[%H:%M:%S]")
         self.log_box.appendPlainText(f"{ts} {msg}")
 
-    # -------------------- Analysis --------------------
+    # Analysis
 
     def run_analysis(self):
         self.save_settings()
@@ -390,7 +358,9 @@ class DataConfigGUI(QWidget):
 
             elif self.file_mode == "behaviour":
                 self.log("Loading telemetry and behaviour data...")
-                telemetry_df, behaviour_df = load_data(telemetry_path, second_path)
+                telemetry_df, behaviour_df = load_pressure_data(
+                    telemetry_path, second_path
+                )
 
                 self.log("Running behaviour analysis...")
                 result = run_pressure_pipeline(

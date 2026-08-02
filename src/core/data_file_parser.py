@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -42,10 +41,3 @@ def detect_skip_rows(data: pd.DataFrame) -> int:
         if isinstance(line, str) and line.strip().lower().startswith("time"):
             return i
     return 0
-
-
-def safe_get_df(data: dict[str, Any], key: str) -> pd.DataFrame:
-    df = data.get(key)
-    if key == "Pressure" and df is None:
-        raise ValueError("Pressure data is required but not found in processed data.")
-    return df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()

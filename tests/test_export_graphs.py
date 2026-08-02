@@ -51,7 +51,7 @@ except ModuleNotFoundError:
 from src.core.export_graphs import (
     create_interactive_plot,
     create_static_plot,
-    export_behavior_images_interactive,
+    export_behavior_plots_per_window,
     export_full_time_range_plot,
     filter_df_by_time,
     filter_times_to_range,
@@ -194,7 +194,7 @@ class TestExportGraphEntrypoints(unittest.TestCase):
         fake_fig.write_html.assert_called_once()
         static_plot.assert_called_once()
 
-    def test_export_behavior_images_interactive_skips_empty_segments(self) -> None:
+    def test_export_behavior_plots_per_window_skips_empty_segments(self) -> None:
         fake_fig = Mock()
 
         with (
@@ -205,7 +205,7 @@ class TestExportGraphEntrypoints(unittest.TestCase):
             ),
             patch("src.core.export_graphs.create_static_plot") as static_plot,
         ):
-            export_behavior_images_interactive(
+            export_behavior_plots_per_window(
                 time_windows=[(0.0, 120.0), (500.0, 600.0)],
                 pressure_data=_main_df(),
                 temp_data=_temp_df(),
