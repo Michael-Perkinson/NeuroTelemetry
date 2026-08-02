@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.core.logger import log_info
-from src.core.respiratory_metrics import (
+from src.core.respiratory.respiratory_metrics import (
     calculate_binned_period_metrics,
     calculate_valid_period_metrics,
     summarize_respiratory_cycles,

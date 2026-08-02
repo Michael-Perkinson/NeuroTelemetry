@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from src.core.photometry_metrics import (
+from src.core.photometry.photometry_metrics import (
     bin_signal,
     combine_signal_bins,
     make_bin_edges,

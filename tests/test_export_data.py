@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.core.export_data import (
+from src.core.export.export_data import (
     build_metrics_export_tables,
     export_data_to_excel,
     insert_blank_rows,
@@ -18,7 +18,7 @@ class TestExportData(unittest.TestCase):
     def test_export_data_to_excel_propagates_write_failure(self) -> None:
         with (
             patch(
-                "src.core.export_data.pd.ExcelWriter",
+                "src.core.export.export_data.pd.ExcelWriter",
                 side_effect=PermissionError("workbook is locked"),
             ),
             self.assertRaisesRegex(PermissionError, "locked"),

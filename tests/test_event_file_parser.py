@@ -6,7 +6,7 @@ from typing import Any, cast
 import pandas as pd
 import pytest
 
-from src.core.event_file_parser import (
+from src.core.ingestion.event_file_parser import (
     classify_behaviour_windows,
     read_and_process_event_file,
     select_fully_covered_windows,

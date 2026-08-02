@@ -5,9 +5,9 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from src.core.peak_detection import find_shoulders
-from src.core.period_analysis import identify_new_periods
-from src.core.respiratory_metrics import (
+from src.core.respiratory.peak_detection import find_shoulders
+from src.core.respiratory.period_analysis import identify_new_periods
+from src.core.respiratory.respiratory_metrics import (
     calculate_binned_period_metrics,
     calculate_period_respiratory_metrics,
     calculate_period_respiratory_metrics_raw,

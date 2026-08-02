@@ -3,7 +3,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from src.core.telemetry_processing import (
+from src.core.ingestion.telemetry_processing import (
     align_and_clean_datetime,
     build_output_frames,
     process_telemetry_to_aligned_frame,

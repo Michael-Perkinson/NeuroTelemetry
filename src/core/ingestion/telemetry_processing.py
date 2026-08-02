@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 from scipy.signal import savgol_filter
 
-from src.core.data_file_parser import detect_skip_rows
+from src.core.ingestion.data_file_parser import detect_skip_rows
 from src.core.logger import log_info, log_warning
-from src.core.signal_processing import (
+from src.core.respiratory.signal_processing import (
     butter_highpass_filter,
     butter_lowpass_filter,
     compute_first_derivative,

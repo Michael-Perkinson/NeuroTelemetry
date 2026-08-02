@@ -7,7 +7,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from src.core.telemetry_processing import (
+from src.core.ingestion.telemetry_processing import (
     _decide_dayfirst_from_reference,
     _to_datetime_with_ms,
     adjust_behaviours,
@@ -148,7 +148,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             ]
         )
 
-        with patch("src.core.telemetry_processing.log_warning") as mock_warn:
+        with patch("src.core.ingestion.telemetry_processing.log_warning") as mock_warn:
             cleaned, sample_rates = label_numerical_columns_from_metadata(
                 meta, numerical
             )
@@ -384,7 +384,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
             }
         )
 
-        with patch("src.core.telemetry_processing.log_warning") as mock_warn:
+        with patch("src.core.ingestion.telemetry_processing.log_warning") as mock_warn:
             cleaned, new_ref = align_and_clean_datetime(numerical)
 
             # Assert that log_warning was called with a message about backwards jumps
@@ -427,7 +427,7 @@ class TestDataAlignmentHelpers(unittest.TestCase):
         )
 
         with patch(
-            "src.core.telemetry_processing.preprocess_pressure_data",
+            "src.core.ingestion.telemetry_processing.preprocess_pressure_data",
             return_value=pressure_out,
         ):
             processed = build_output_frames(

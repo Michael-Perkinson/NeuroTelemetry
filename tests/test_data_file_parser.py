@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src.core.data_file_parser import (
+from src.core.ingestion.data_file_parser import (
     detect_skip_rows,
     read_and_process_photometry_file,
 )

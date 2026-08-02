@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from src.core.signal_processing import (
+from src.core.respiratory.signal_processing import (
     butter_highpass_filter,
     butter_lowpass_filter,
     calculate_dynamic_bins,

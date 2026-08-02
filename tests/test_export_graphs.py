@@ -48,7 +48,7 @@ except ModuleNotFoundError:
     sys.modules["plotly"] = plotly_module
     sys.modules["plotly.graph_objects"] = graph_objects_module
 
-from src.core.export_graphs import (
+from src.core.export.export_graphs import (
     create_interactive_plot,
     create_static_plot,
     export_behavior_plots_per_window,
@@ -171,10 +171,10 @@ class TestExportGraphEntrypoints(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch(
-                "src.core.export_graphs.create_interactive_plot",
+                "src.core.export.export_graphs.create_interactive_plot",
                 return_value=fake_fig,
             ),
-            patch("src.core.export_graphs.create_static_plot") as static_plot,
+            patch("src.core.export.export_graphs.create_static_plot") as static_plot,
         ):
             export_full_time_range_plot(
                 _main_df(),
@@ -200,10 +200,10 @@ class TestExportGraphEntrypoints(unittest.TestCase):
         with (
             tempfile.TemporaryDirectory() as tmp,
             patch(
-                "src.core.export_graphs.create_interactive_plot",
+                "src.core.export.export_graphs.create_interactive_plot",
                 return_value=fake_fig,
             ),
-            patch("src.core.export_graphs.create_static_plot") as static_plot,
+            patch("src.core.export.export_graphs.create_static_plot") as static_plot,
         ):
             export_behavior_plots_per_window(
                 time_windows=[(0.0, 120.0), (500.0, 600.0)],

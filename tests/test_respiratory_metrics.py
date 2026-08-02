@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.core.respiratory_metrics import (
+from src.core.respiratory.respiratory_metrics import (
     calculate_period_respiratory_metrics,
     calculate_period_respiratory_metrics_raw,
     compute_atm_pressure_session_summary,

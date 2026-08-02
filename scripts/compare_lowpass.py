@@ -20,12 +20,12 @@ from scipy.signal import butter, filtfilt
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.data_file_parser import retrieve_telemetry_data
-from src.core.event_file_parser import (
+from src.core.ingestion.data_file_parser import retrieve_telemetry_data
+from src.core.ingestion.event_file_parser import (
     read_and_process_event_file,
     structure_behaviour_events,
 )
-from src.core.telemetry_processing import process_telemetry_to_aligned_frame
+from src.core.ingestion.telemetry_processing import process_telemetry_to_aligned_frame
 
 CUTOFFS = [20, 30, 40, 50, 60, 75, 100]
 

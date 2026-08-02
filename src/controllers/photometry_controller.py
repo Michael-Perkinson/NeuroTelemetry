@@ -5,30 +5,30 @@ from pathlib import Path
 import pandas as pd
 
 from src import __version__
-from src.core.data_file_parser import (
-    read_and_process_photometry_file,
-    retrieve_telemetry_data,
-)
-from src.core.export_data import (
+from src.core.export.export_data import (
     export_binned_data_to_excel,
 )
-from src.core.export_graphs import (
+from src.core.export.export_graphs import (
     export_full_time_range_plot,
 )
 from src.core.file_utilities import create_folders_for_graphs, format_directory_listing
+from src.core.ingestion.data_file_parser import (
+    read_and_process_photometry_file,
+    retrieve_telemetry_data,
+)
+from src.core.ingestion.telemetry_processing import (
+    prepare_raw_data,
+    process_telemetry_to_aligned_frame,
+)
 from src.core.logger import log_exception, log_info
-from src.core.photometry_metrics import (
+from src.core.photometry.photometry_metrics import (
     bin_signal,
     combine_signal_bins,
     make_bin_edges,
     trim_to_window,
 )
-from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
-from src.core.signal_processing import compute_time_window, get_time_bounds
-from src.core.telemetry_processing import (
-    prepare_raw_data,
-    process_telemetry_to_aligned_frame,
-)
+from src.core.photometry.photometry_peaks import analyse_photometry_peaks, bin_peaks
+from src.core.respiratory.signal_processing import compute_time_window, get_time_bounds
 
 MAIN_SIGNAL = "dFoF_465"
 

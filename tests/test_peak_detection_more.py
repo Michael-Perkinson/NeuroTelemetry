@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from src.core.peak_detection import analyse_peaks, find_peaks_and_shoulders
+from src.core.respiratory.peak_detection import analyse_peaks, find_peaks_and_shoulders
 
 
 class TestFindPeaksAndShoulders(unittest.TestCase):
@@ -50,7 +50,7 @@ class TestAnalysePeaks(unittest.TestCase):
         )
 
         with patch(
-            "src.core.peak_detection.find_peaks_and_shoulders",
+            "src.core.respiratory.peak_detection.find_peaks_and_shoulders",
             return_value=(
                 np.array([1.0, 2.0, 3.0]),
                 np.array([-5.0, 0.0, -5.0]),

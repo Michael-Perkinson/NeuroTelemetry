@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.signal import welch
 from scipy.signal.windows import hamming
 
-from src.core.respiratory_psd_analysis import (
+from src.core.respiratory.respiratory_psd_analysis import (
     DEFAULT_PSD_DRIFT_R2_THRESHOLD,
     DEFAULT_PSD_NFFT,
     DEFAULT_PSD_OVERLAP_FRACTION,

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-import src.core.peak_detection as peak_detection
+import src.core.respiratory.peak_detection as peak_detection
 
 
 def test_peak_detection_uses_sampling_rate_from_timestamps(monkeypatch) -> None:

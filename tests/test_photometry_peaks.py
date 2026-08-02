@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from src.core.photometry_peaks import analyse_photometry_peaks, bin_peaks
+from src.core.photometry.photometry_peaks import analyse_photometry_peaks, bin_peaks
 
 
 class TestPhotometryPeaks(unittest.TestCase):

@@ -5,30 +5,37 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.core.data_file_parser import retrieve_telemetry_data
-from src.core.event_file_parser import (
+from src.core.export.export_data import (
+    export_data_to_excel,
+    summarize_peak_counts_per_window,
+)
+from src.core.export.export_graphs import (
+    export_behavior_plots_per_window,
+    export_full_time_range_plot,
+)
+from src.core.file_utilities import create_folders_for_graphs, format_directory_listing
+from src.core.ingestion.data_file_parser import retrieve_telemetry_data
+from src.core.ingestion.event_file_parser import (
     classify_behaviour_windows,
     read_and_process_event_file,
     select_fully_covered_windows,
     structure_behaviour_events,
 )
-from src.core.export_data import export_data_to_excel, summarize_peak_counts_per_window
-from src.core.export_graphs import (
-    export_behavior_plots_per_window,
-    export_full_time_range_plot,
+from src.core.ingestion.telemetry_processing import (
+    process_telemetry_to_aligned_frame,
+    require_signal_frame,
 )
-from src.core.file_utilities import create_folders_for_graphs, format_directory_listing
 from src.core.logger import log_exception, log_info
-from src.core.peak_detection import analyse_peaks
-from src.core.period_analysis import (
+from src.core.respiratory.peak_detection import analyse_peaks
+from src.core.respiratory.period_analysis import (
     compute_respiratory_metrics_for_periods,
     find_valid_periods,
 )
-from src.core.respiratory_metrics import (
+from src.core.respiratory.respiratory_metrics import (
     compute_atm_pressure_session_summary,
     compute_atm_pressure_time_bins,
 )
-from src.core.respiratory_psd_analysis import (
+from src.core.respiratory.respiratory_psd_analysis import (
     DEFAULT_PSD_AUC_BAND_HZ,
     DEFAULT_PSD_END_TRIM_SAMPLES,
     DEFAULT_PSD_NFFT,
@@ -42,11 +49,7 @@ from src.core.respiratory_psd_analysis import (
     export_ttot_traces,
     plot_psd_results,
 )
-from src.core.signal_processing import get_time_bounds
-from src.core.telemetry_processing import (
-    process_telemetry_to_aligned_frame,
-    require_signal_frame,
-)
+from src.core.respiratory.signal_processing import get_time_bounds
 
 
 def load_pressure_data(

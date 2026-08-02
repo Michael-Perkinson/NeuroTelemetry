@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from src.core.period_analysis import (
+from src.core.respiratory.period_analysis import (
     compute_respiratory_metrics_for_periods,
     find_valid_periods,
 )
@@ -95,15 +95,15 @@ class TestComputeRespiratoryMetricsForPeriods(unittest.TestCase):
 
         with (
             patch(
-                "src.core.period_analysis.calculate_binned_period_metrics",
+                "src.core.respiratory.period_analysis.calculate_binned_period_metrics",
                 return_value=binned,
             ) as calc_binned,
             patch(
-                "src.core.period_analysis.calculate_valid_period_metrics",
+                "src.core.respiratory.period_analysis.calculate_valid_period_metrics",
                 return_value=summary,
             ),
             patch(
-                "src.core.period_analysis.summarize_respiratory_cycles",
+                "src.core.respiratory.period_analysis.summarize_respiratory_cycles",
                 return_value=window_summary,
             ) as summarize,
         ):
