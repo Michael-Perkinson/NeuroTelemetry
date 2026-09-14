@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.controllers.photometry_controller import (
+    PhotometryPipelineResult,
     load_photometry_data,
     run_photometry_pipeline,
 )
@@ -16,7 +17,7 @@ PHOTOMETRY_PATH = DATA_ROOT / "2025-07-16 VP3 MET DIESTRUS SALINE_Data OPTION 2 
 TELEMETRY_PATH = DATA_ROOT / "2025-07-16 VP3 Saline TEMP and ACT ascii.csv"
 
 
-def _run_pipeline(output_path: Path, log_callback) -> dict | None:
+def _run_pipeline(output_path: Path, log_callback) -> PhotometryPipelineResult | None:
     photometry_df, telemetry_df = load_photometry_data(
         PHOTOMETRY_PATH,
         TELEMETRY_PATH,

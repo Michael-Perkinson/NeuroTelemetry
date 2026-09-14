@@ -9,6 +9,7 @@ import pandas as pd
 from src.core.respiratory.period_analysis import (
     compute_respiratory_metrics_for_periods,
     find_valid_periods,
+    identify_new_periods,
 )
 
 
@@ -27,7 +28,6 @@ class TestFindValidPeriods(unittest.TestCase):
 
         valid_peaks, valid_troughs, periods, window_periods = find_valid_periods(
             {"0.0-59.0": [result]},
-            pd.DataFrame(),
             [(0.0, 59.0)],
         )
 
@@ -40,7 +40,6 @@ class TestFindValidPeriods(unittest.TestCase):
     def test_find_valid_periods_skips_missing_results_and_short_periods(self) -> None:
         valid_peaks, valid_troughs, periods, window_periods = find_valid_periods(
             {},
-            pd.DataFrame(),
             [(0.0, 10.0)],
         )
 
@@ -63,7 +62,6 @@ class TestFindValidPeriods(unittest.TestCase):
 
         valid_peaks, valid_troughs, periods, window_periods = find_valid_periods(
             {"0.0-60.0": [result]},
-            pd.DataFrame(),
             [(0.0, 60.0)],
         )
 
@@ -125,6 +123,30 @@ class TestComputeRespiratoryMetricsForPeriods(unittest.TestCase):
         self.assertEqual(metrics["0.0-2.0"]["Periods"]["Period_1"]["Summary"], summary)
         calc_binned.assert_called_once()
         self.assertEqual(summarize.call_count, 2)
+
+
+class TestPeriodAnalysis(unittest.TestCase):
+    def test_identify_new_periods_splits_on_large_peak_gap(self) -> None:
+        peak_times = pd.Series([0.0, 1.0, 2.0, 10.0, 11.0, 12.0])
+
+        periods = identify_new_periods(
+            start_time=0.0,
+            end_time=12.0,
+            peak_times=peak_times,
+            min_peaks=3,
+            interval_window=3,
+            break_multiplier=2.0,
+        )
+
+        self.assertEqual(periods, [(0.0, 2.0), (10.0, 12.0)])
+
+    def test_identify_new_periods_returns_empty_with_too_few_peaks(self) -> None:
+        peak_times = pd.Series([0.0, 1.0])
+
+        self.assertEqual(
+            identify_new_periods(0.0, 2.0, peak_times, min_peaks=3),
+            [],
+        )
 
 
 if __name__ == "__main__":

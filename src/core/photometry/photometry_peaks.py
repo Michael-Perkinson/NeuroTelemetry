@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from scipy.signal import find_peaks, peak_widths
 
@@ -8,20 +9,23 @@ def analyse_photometry_peaks(
     main_signal_col: str = "dFoF_465",
     prominence: float = 0.05,
     amp_thresh: float = 0.01,
-) -> tuple[pd.DataFrame, list, dict[str, float]]:
+) -> tuple[pd.DataFrame, list[float], dict[str, float | int]]:
     """
     Detect peaks in photometry signal, extract per-peak metrics (no troughs).
-    Returns:
-        per_peak_df: PeakTime, Amplitude, PeakInterval (ISI), PeakCount, Width
-        summary: dict of summary statistics
+    Returns the per-peak metrics, peak timestamps, and summary statistics.
     """
     if "TimeSinceReference" not in photometry_data.columns:
         raise ValueError("photometry_data must contain 'TimeSinceReference'")
-    if main_signal_col.strip() not in photometry_data.columns.str.strip():
+    normalized_columns = photometry_data.columns.astype(str).str.strip()
+    matching_columns = photometry_data.columns[
+        normalized_columns == main_signal_col.strip()
+    ]
+    if matching_columns.empty:
         raise ValueError(f"Missing required column: {main_signal_col}")
+    resolved_signal_col = matching_columns[0]
 
     t = photometry_data["TimeSinceReference"].to_numpy()
-    y = photometry_data[main_signal_col.strip()].to_numpy()
+    y = photometry_data[resolved_signal_col].to_numpy()
 
     peaks, _ = find_peaks(y, prominence=prominence)
     if len(peaks) == 0:
@@ -99,68 +103,47 @@ def bin_peaks(
 
     # Convert absolute → relative
     t_rel = per_peak_df["PeakTime"].to_numpy() - injection_sec
-    bin_indices = np.digitize(t_rel, bin_edges) - 1
+    bin_indices: npt.NDArray[np.intp] = np.asarray(
+        np.digitize(t_rel, bin_edges) - 1, dtype=np.intp
+    )
 
-    rows = []
-    for i in range(len(bin_edges) - 1):
-        mask = bin_indices == i
-        sub = per_peak_df.loc[mask]
+    n_bins = len(bin_edges) - 1
+    in_range = (bin_indices >= 0) & (bin_indices < n_bins)
+    peaks = per_peak_df.loc[in_range].copy()
+    peaks["Bin"] = bin_indices[in_range]
+    bin_index = pd.RangeIndex(n_bins, name="Bin")
 
-        def mean_sem(x):
-            if len(x) == 0:
-                return np.nan, np.nan
-            arr = x.to_numpy(dtype=float)
-            arr = arr[~np.isnan(arr)]
-            if len(arr) == 0:
-                return np.nan, np.nan
-            sem = np.nan if len(arr) < 2 else np.std(arr, ddof=1) / np.sqrt(len(arr))
-            return np.mean(arr), sem
+    def grouped_stats(column: str, data: pd.DataFrame = peaks) -> pd.DataFrame:
+        if column not in data:
+            return pd.DataFrame(index=bin_index, columns=["mean", "sem"], dtype=float)
+        grouped = data.groupby("Bin")[column].agg(["count", "mean", "std"])
+        grouped["sem"] = grouped["std"] / np.sqrt(grouped["count"])
+        return grouped[["mean", "sem"]].reindex(bin_index)
 
-        mean_amp, sem_amp = (
-            mean_sem(sub["Amplitude"]) if "Amplitude" in sub else (np.nan, np.nan)
-        )
-        mean_width, sem_width = (
-            mean_sem(sub["Width"]) if "Width" in sub else (np.nan, np.nan)
-        )
-
-        # ISIs within this bin
-        isi_in_bin = sub["PeakInterval"].iloc[:-1] if len(sub) > 1 else []
-        mean_isi, sem_isi = (
-            mean_sem(isi_in_bin) if len(isi_in_bin) else (np.nan, np.nan)
-        )
-
-        # Peak count + normalized frequency
-        peak_count = len(sub)
-        bin_minutes = (bin_edges[i + 1] - bin_edges[i]) / 60.0
-        peaks_per_min = peak_count / bin_minutes if bin_minutes > 0 else np.nan
-
-        rows.append(
-            [
-                bin_edges[i],
-                bin_edges[i + 1],
-                peak_count,
-                peaks_per_min,
-                mean_amp,
-                sem_amp,
-                mean_width,
-                sem_width,
-                mean_isi,
-                sem_isi,
-            ]
-        )
+    amplitude = grouped_stats("Amplitude")
+    width = grouped_stats("Width")
+    isi_source = peaks.loc[peaks["Bin"].duplicated(keep="last")]
+    isi = grouped_stats("PeakInterval", isi_source)
+    peak_count = peaks.groupby("Bin").size().reindex(bin_index, fill_value=0)
+    bin_minutes = np.diff(bin_edges) / 60.0
+    peaks_per_min = np.divide(
+        peak_count.to_numpy(dtype=float),
+        bin_minutes,
+        out=np.full(n_bins, np.nan),
+        where=bin_minutes > 0,
+    )
 
     return pd.DataFrame(
-        rows,
-        columns=[
-            "BinStart",
-            "BinEnd",
-            "PeakCount",
-            "PeaksPerMinute",
-            "MeanAmp",
-            "SEMAmp",
-            "MeanWidth",
-            "SEMWidth",
-            "MeanISI",
-            "SEMISI",
-        ],
+        {
+            "BinStart": bin_edges[:-1],
+            "BinEnd": bin_edges[1:],
+            "PeakCount": peak_count.to_numpy(),
+            "PeaksPerMinute": peaks_per_min,
+            "MeanAmp": amplitude["mean"].to_numpy(),
+            "SEMAmp": amplitude["sem"].to_numpy(),
+            "MeanWidth": width["mean"].to_numpy(),
+            "SEMWidth": width["sem"].to_numpy(),
+            "MeanISI": isi["mean"].to_numpy(),
+            "SEMISI": isi["sem"].to_numpy(),
+        }
     )

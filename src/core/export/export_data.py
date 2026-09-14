@@ -93,8 +93,6 @@ def build_metrics_export_tables(
                 binned_df.insert(0, "Period", period_name)
                 binned_df.insert(0, "Window", window_key)
                 per_bin_rows.append(binned_df)
-            else:
-                continue
 
             period_summary = period_data.get("Summary", {})
             if period_summary:

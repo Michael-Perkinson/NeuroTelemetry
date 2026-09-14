@@ -28,6 +28,11 @@ class TestPhotometryMetrics(unittest.TestCase):
     def test_make_bin_edges_returns_seconds_relative_to_injection(self) -> None:
         np.testing.assert_array_equal(make_bin_edges(1, 2, 1), [-60, 0, 60, 120])
 
+    def test_make_bin_edges_clips_non_divisible_final_bin_to_requested_end(
+        self,
+    ) -> None:
+        np.testing.assert_array_equal(make_bin_edges(1, 2, 2), [-60, 60, 120])
+
     def test_bin_signal_calculates_mean_and_sem_per_relative_bin(self) -> None:
         signal_df = pd.DataFrame(
             {
@@ -51,6 +56,25 @@ class TestPhotometryMetrics(unittest.TestCase):
 
         self.assertEqual(binned.columns.tolist(), ["BinStart", "BinEnd", "Mean", "SEM"])
         self.assertTrue(binned.empty)
+
+    def test_bin_signal_retains_empty_intermediate_bins(self) -> None:
+        signal_df = pd.DataFrame(
+            {
+                "TimeSinceReference": [10.0, 130.0],
+                "dFoF_465": [1.0, 3.0],
+            }
+        )
+
+        binned = bin_signal(
+            signal_df,
+            np.array([0.0, 60.0, 120.0, 180.0]),
+            "dFoF_465",
+            injection_sec=0.0,
+        )
+
+        self.assertEqual(binned["Mean"].iloc[[0, 2]].tolist(), [1.0, 3.0])
+        self.assertTrue(np.isnan(binned.loc[1, "Mean"]))
+        self.assertTrue(np.isnan(binned.loc[1, "SEM"]))
 
     def test_combine_signal_bins_merges_temperature_and_activity(self) -> None:
         photometry = pd.DataFrame(

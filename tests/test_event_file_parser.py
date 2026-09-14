@@ -113,7 +113,6 @@ def test_select_fully_covered_windows_filters_by_duration_and_cutoff() -> None:
     windows = select_fully_covered_windows(
         behaviour_to_plot="sleep",
         behaviour_data=behaviour_data,
-        reference_timestamp=pd.Timestamp("2025-01-01T00:00:00"),
     )
 
     assert windows == [(10.0, 50.0), (5_350.0, 5_400.0)]
@@ -124,7 +123,6 @@ def test_select_fully_covered_windows_returns_empty_for_missing_behaviour() -> N
         select_fully_covered_windows(
             behaviour_to_plot="sleep",
             behaviour_data={},
-            reference_timestamp=pd.Timestamp("1970-01-01T00:00:00"),
         )
         == []
     )
@@ -159,7 +157,6 @@ def test_classify_behaviour_windows_reports_telemetry_coverage() -> None:
     assert select_fully_covered_windows(
         "sleep",
         behaviour_data,
-        pd.Timestamp("2025-01-01"),
         telemetry_bounds=(-10.0, 100.0),
     ) == [(0.0, 40.0)]
 
@@ -189,7 +186,6 @@ def test_classify_behaviour_windows_detects_internal_telemetry_gap() -> None:
     assert select_fully_covered_windows(
         "sleep",
         behaviour_data,
-        pd.Timestamp("2025-01-01"),
         telemetry_bounds=(0.0, 150.0),
         telemetry_intervals=intervals,
     ) == [(10.0, 40.0)]

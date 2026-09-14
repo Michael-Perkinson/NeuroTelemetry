@@ -123,7 +123,7 @@ def test_alignment_origin_keeps_negative_time_and_trims_leading_nan() -> None:
     assert processed["ReferenceTimestamp"] == datetime(2025, 1, 1, 10, 0)
 
 
-def test_extract_rejects_unknown_timeline_origin() -> None:
+def test_process_telemetry_to_aligned_frame_rejects_unknown_timeline_origin() -> None:
     telemetry = _temp_telemetry([("01/01/2025 10:00:00 AM", "36.0")])
 
     with pytest.raises(ValueError, match="timeline_origin"):

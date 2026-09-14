@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 
 from src.controllers.pressure_controller import (
+    PressurePipelineResult,
     load_pressure_data,
     run_pressure_pipeline,
 )
@@ -19,7 +20,7 @@ TELEMETRY_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 Ponemah.csv"
 EVENT_PATH = DATA_ROOT / "B5 Pro NIGHT 11-01-2025 BORIS.csv"
 
 
-def _run_pipeline(output_path: Path, log_callback) -> dict | None:
+def _run_pipeline(telemetry_path: Path, log_callback) -> PressurePipelineResult | None:
     telemetry_df, event_df = load_pressure_data(TELEMETRY_PATH, EVENT_PATH)
 
     return run_pressure_pipeline(
@@ -28,7 +29,7 @@ def _run_pipeline(output_path: Path, log_callback) -> dict | None:
         behaviour_to_plot="Time spent sleeping",
         video_time="01/11/2025 04:59:59 PM",
         bin_size_sec=10,
-        output_path=output_path,
+        telemetry_path=telemetry_path,
         log_callback=log_callback,
     )
 
@@ -40,8 +41,10 @@ def _run_pipeline(output_path: Path, log_callback) -> dict | None:
     reason="Set RUN_PIPELINE_SMOKE=1 and provide sample pressure data to run.",
 )
 def test_pressure_pipeline_smoke(local_tmpdir: Path) -> None:
-    output_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
-    results = _run_pipeline(output_path=output_path, log_callback=lambda _msg: None)
+    telemetry_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
+    results = _run_pipeline(
+        telemetry_path=telemetry_path, log_callback=lambda _msg: None
+    )
 
     assert results is not None
     assert "summary" in results
@@ -49,7 +52,9 @@ def test_pressure_pipeline_smoke(local_tmpdir: Path) -> None:
     assert "psd" in results
 
     analysis_folder = (
-        output_path.parent / "extracted_data" / f"{output_path.stem}_PressureAnalysis"
+        telemetry_path.parent
+        / "extracted_data"
+        / f"{telemetry_path.stem}_PressureAnalysis"
     )
     assert analysis_folder.exists()
     assert results["analysis_folder"] == analysis_folder
@@ -57,13 +62,13 @@ def test_pressure_pipeline_smoke(local_tmpdir: Path) -> None:
     assert results["config_path"].is_file()
 
 
-def test_pressure_pipeline_handles_failure_gracefully(local_tmpdir: Path) -> None:
-    """Test that pipeline catches exceptions and marks status as failed."""
+def test_pressure_pipeline_records_failure_before_reraising(local_tmpdir: Path) -> None:
+    """The pipeline records its failed status before reraising the exception."""
     import pandas as pd
 
     from src.controllers.pressure_controller import run_pressure_pipeline
 
-    output_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
+    telemetry_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
 
     # Create minimal mock dataframes
     telemetry_df = pd.DataFrame(
@@ -94,15 +99,15 @@ def test_pressure_pipeline_handles_failure_gracefully(local_tmpdir: Path) -> Non
                 behaviour_to_plot="Time spent sleeping",
                 video_time="01/11/2025 04:59:59 PM",
                 bin_size_sec=10,
-                output_path=output_path,
+                telemetry_path=telemetry_path,
                 log_callback=lambda x: None,
             )
 
         # But the config file should exist and have status="failed"
         analysis_folder = (
-            output_path.parent
+            telemetry_path.parent
             / "extracted_data"
-            / f"{output_path.stem}_PressureAnalysis"
+            / f"{telemetry_path.stem}_PressureAnalysis"
         )
         logs_folder = analysis_folder / "logs"
         assert logs_folder.exists()
@@ -128,5 +133,5 @@ if __name__ == "__main__":
         raise SystemExit(f"Sample pressure dataset not available under {DATA_ROOT}")
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    manual_output_path = Path("test_outputs") / f"pressure_run_{timestamp}"
-    _run_pipeline(output_path=manual_output_path, log_callback=print)
+    manual_telemetry_path = Path("test_outputs") / f"pressure_run_{timestamp}"
+    _run_pipeline(telemetry_path=manual_telemetry_path, log_callback=print)

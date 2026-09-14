@@ -11,6 +11,9 @@ dist/
 build/
 pressure_segment_exports/
 test_outputs/
+/batch_config.csv
+.scratch/
+_trial_multi.py
 
 # PyInstaller spec file
 PressureAnalyzer.spec

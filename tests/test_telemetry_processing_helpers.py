@@ -542,6 +542,22 @@ class TestDataAlignmentHelpers(unittest.TestCase):
 
         self.assertEqual(intervals, [(0.0, 1.0), (3.0, 3.0), (4.5, 4.5)])
 
+    def test_continuous_signal_coverage_sorts_deduplicates_and_keeps_boundary(
+        self,
+    ) -> None:
+        numerical = pd.DataFrame(
+            {
+                "TimeSinceReference": [4.0, 1.0, 0.0, 1.0, 2.0, "bad", 6.0],
+                "Pressure": [1.0, 1.0, 1.0, 2.0, 1.0, 1.0, np.nan],
+            }
+        )
+
+        intervals = continuous_signal_coverage(
+            numerical, "Pressure", max_gap_seconds=2.0
+        )
+
+        self.assertEqual(intervals, [(0.0, 4.0)])
+
     def test_trim_coverage_intervals_reserves_filter_edges(self) -> None:
         self.assertEqual(
             trim_coverage_intervals([(0.0, 10.0), (20.0, 21.0)], margin_seconds=1.0),

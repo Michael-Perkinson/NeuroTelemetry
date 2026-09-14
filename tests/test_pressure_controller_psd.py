@@ -31,14 +31,14 @@ class TestPressurePipelinePSD(unittest.TestCase):
         tmpdir = base_dir / f"pressure_psd_{uuid4().hex}"
         tmpdir.mkdir(parents=True, exist_ok=True)
         try:
-            output_path = tmpdir / "pressure_psd_run"
+            telemetry_path = tmpdir / "pressure_psd_run"
             results = run_pressure_pipeline(
                 telemetry_df=telemetry_df,
                 event_df=event_df,
                 behaviour_to_plot="Time spent sleeping",
                 video_time="01/11/2025 04:59:59 PM",
                 bin_size_sec=10,
-                output_path=output_path,
+                telemetry_path=telemetry_path,
                 log_callback=lambda _msg: None,
             )
 
@@ -50,9 +50,9 @@ class TestPressurePipelinePSD(unittest.TestCase):
             self.assertFalse(results["psd"]["pooled_psd"].empty)
 
             analysis_folder = (
-                output_path.parent
+                telemetry_path.parent
                 / "extracted_data"
-                / f"{output_path.stem}_PressureAnalysis"
+                / f"{telemetry_path.stem}_PressureAnalysis"
             )
             psd_folder = analysis_folder / "PSD"
             self.assertTrue(psd_folder.exists())

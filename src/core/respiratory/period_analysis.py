@@ -10,6 +10,8 @@ from src.core.respiratory.respiratory_metrics import (
     summarize_respiratory_cycles,
 )
 
+DEFAULT_BREAK_MULTIPLIER: float = 4.0
+
 
 def find_valid_periods(
     results: dict[
@@ -25,7 +27,6 @@ def find_valid_periods(
             ]
         ],
     ],
-    pressure_data: pd.DataFrame,
     time_windows: list[tuple[float, float]],
 ) -> tuple[
     list[float],
@@ -230,9 +231,14 @@ def identify_new_periods(
     peak_times: pd.Series,
     min_peaks: int = 50,
     interval_window: int = 10,
-    break_multiplier: float = 2.0,
+    break_multiplier: float = DEFAULT_BREAK_MULTIPLIER,
 ) -> list[tuple[float, float]]:
-    """Detect valid respiratory periods based on spacing between peaks."""
+    """Detect valid respiratory periods based on spacing between peaks.
+
+    A fourfold interval increase is used as the conservative default to avoid
+    splitting periods on ordinary long breaths while retaining protection
+    against unusually large gaps in the detected peak sequence.
+    """
     peak_times_filtered = (
         peak_times[(peak_times >= start_time) & (peak_times <= end_time)]
         .sort_values()

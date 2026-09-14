@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import cast
 
-from PySide6.QtCore import QDateTime, QSettings, Qt
+from PySide6.QtCore import QDateTime, QSettings, Qt, QThread
 from PySide6.QtWidgets import (
     QCheckBox,
     QDateTimeEdit,
@@ -23,15 +23,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.controllers.photometry_controller import (
-    load_photometry_data,
-    run_photometry_pipeline,
-)
-from src.controllers.pressure_controller import (
-    load_pressure_data,
-    run_pressure_pipeline,
-)
 from src.core.file_utilities import detect_data_type
+from src.gui.analysis_worker import (
+    AnalysisFailure,
+    AnalysisRequest,
+    AnalysisSuccess,
+    AnalysisWorker,
+    BehaviourAnalysisRequest,
+    PhotometryAnalysisRequest,
+)
 
 
 class AnalysisWindow(QWidget):
@@ -85,7 +85,11 @@ class AnalysisWindow(QWidget):
         self.log_box.setStyleSheet("background-color: #1e1e1e; color: white;")
         self.main_layout.addWidget(self.log_box)
 
+        self.telemetry_path.textChanged.connect(self.update_input_state)
         self.secondary_path.textChanged.connect(self.on_secondary_file_changed)
+
+        self._analysis_thread: QThread | None = None
+        self._analysis_worker: AnalysisWorker | None = None
 
         self.restore_settings()
 
@@ -259,6 +263,10 @@ class AnalysisWindow(QWidget):
         self.photo_bin_min.setValue(cast(int, s.value("photo_bin_min", 30, type=int)))
 
     def closeEvent(self, event):
+        if self._analysis_thread is not None and self._analysis_thread.isRunning():
+            self.log("Analysis is still running; wait for it to finish before closing.")
+            event.ignore()
+            return
         self.save_settings()
         super().closeEvent(event)
 
@@ -281,19 +289,21 @@ class AnalysisWindow(QWidget):
         if path:
             s.setValue("last_directory", str(Path(path).parent))
             target_entry.setText(path)
-            if target_entry is self.secondary_path:
-                self.on_secondary_file_changed()
-        else:
-            target_entry.clear()
 
-    def on_secondary_file_changed(self):
-        path = Path(self.secondary_path.text())
-        if not path.exists():
+    def update_input_state(self, _text=None, *, warn_unknown=False):
+        """Update mode controls and Run availability from both input paths."""
+        telemetry_text = self.telemetry_path.text().strip()
+        secondary_text = self.secondary_path.text().strip()
+        telemetry_exists = bool(telemetry_text) and Path(telemetry_text).is_file()
+        secondary_exists = bool(secondary_text) and Path(secondary_text).is_file()
+
+        self.run_button.setEnabled(False)
+        if not secondary_exists:
             self.stack.setVisible(False)
             self.file_mode = "unknown"
             return
 
-        ftype = detect_data_type(path)
+        ftype = detect_data_type(Path(secondary_text))
         mapping = {
             "behaviour": self.behaviour_panel,
             "photometry": self.photometry_panel,
@@ -303,17 +313,23 @@ class AnalysisWindow(QWidget):
             self.stack.setCurrentWidget(panel)
             self.stack.setVisible(True)
             self.file_mode = ftype
-            self.run_button.setEnabled(True)
+            self.run_button.setEnabled(
+                telemetry_exists and self._analysis_thread is None
+            )
 
         else:
             self.stack.setVisible(False)
             self.file_mode = "unknown"
-            QMessageBox.warning(
-                self,
-                "Unrecognized File",
-                "Could not detect file type.\n"
-                "Please choose a valid Behaviour or Photometry file.",
-            )
+            if warn_unknown:
+                QMessageBox.warning(
+                    self,
+                    "Unrecognized File",
+                    "Could not detect file type.\n"
+                    "Please choose a valid Behaviour or Photometry file.",
+                )
+
+    def on_secondary_file_changed(self, _text=None):
+        self.update_input_state(warn_unknown=True)
 
     def log(self, msg):
         ts = datetime.now().strftime("[%H:%M:%S]")
@@ -321,77 +337,91 @@ class AnalysisWindow(QWidget):
 
     # Analysis
 
+    def _build_analysis_request(self) -> AnalysisRequest:
+        telemetry_path = Path(self.telemetry_path.text().strip())
+        if not telemetry_path.is_file():
+            raise FileNotFoundError("Telemetry file does not exist.")
+
+        secondary_path = Path(self.secondary_path.text().strip())
+        if not secondary_path.is_file():
+            raise FileNotFoundError("Second file does not exist.")
+
+        if self.file_mode == "photometry":
+            return PhotometryAnalysisRequest(
+                mode="photometry",
+                telemetry_path=telemetry_path,
+                secondary_path=secondary_path,
+                photometry_start_time=(
+                    self.photometry_start_time.dateTime().toString(
+                        "dd/MM/yyyy hh:mm:ss AP"
+                    )
+                ),
+                injection_sec=self.injection_sec.value(),
+                pre_min=self.photo_pre_min.value(),
+                post_min=self.photo_post_min.value(),
+                bin_min=self.photo_bin_min.value(),
+            )
+
+        if self.file_mode == "behaviour":
+            return BehaviourAnalysisRequest(
+                mode="behaviour",
+                telemetry_path=telemetry_path,
+                secondary_path=secondary_path,
+                behaviour_to_plot=self.behaviour_input.text(),
+                video_time=self.video_time.dateTime().toString(
+                    "dd/MM/yyyy hh:mm:ss AP"
+                ),
+                bin_size_sec=self.bin_size.value(),
+                atm_bin_size_sec=self.atm_bin_size.value(),
+                export_atm_summary=self.export_atm_summary.isChecked(),
+            )
+
+        raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
+
     def run_analysis(self):
+        if self._analysis_thread is not None:
+            return
+
         self.save_settings()
-        self.run_button.setEnabled(False)
-        result = None
         try:
-            telemetry_path = Path(self.telemetry_path.text())
-            if not telemetry_path.exists():
-                raise FileNotFoundError("Telemetry file does not exist.")
-
-            second_path = Path(self.secondary_path.text())
-            if not second_path.exists():
-                raise FileNotFoundError("Second file does not exist.")
-
-            if self.file_mode == "photometry":
-                self.log("Loading telemetry and photometry...")
-
-                photometry_df, telemetry_df = load_photometry_data(
-                    second_path, telemetry_path
-                )
-
-                self.log("Running photometry analysis...")
-                result = run_photometry_pipeline(
-                    telemetry_df=telemetry_df,
-                    photometry_df=photometry_df,
-                    photometry_start_time=self.photometry_start_time.dateTime().toString(
-                        "dd/MM/yyyy hh:mm:ss AP"
-                    ),
-                    injection_sec=self.injection_sec.value(),
-                    pre_min=self.photo_pre_min.value(),
-                    post_min=self.photo_post_min.value(),
-                    bin_min=self.photo_bin_min.value(),
-                    telemetry_path=telemetry_path,
-                    log_callback=self.log,
-                )
-
-            elif self.file_mode == "behaviour":
-                self.log("Loading telemetry and behaviour data...")
-                telemetry_df, behaviour_df = load_pressure_data(
-                    telemetry_path, second_path
-                )
-
-                self.log("Running behaviour analysis...")
-                result = run_pressure_pipeline(
-                    telemetry_df=telemetry_df,
-                    event_df=behaviour_df,
-                    behaviour_to_plot=self.behaviour_input.text(),
-                    video_time=self.video_time.dateTime().toString(
-                        "dd/MM/yyyy hh:mm:ss AP"
-                    ),
-                    bin_size_sec=self.bin_size.value(),
-                    output_path=telemetry_path,
-                    atm_bin_size_sec=self.atm_bin_size.value(),
-                    export_atm_summary=self.export_atm_summary.isChecked(),
-                    log_callback=self.log,
-                    event_path=second_path,
-                )
-
-            else:
-                raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
-
-        except Exception as e:
-            self.log(f"Error: {e}")
-            self.log(traceback.format_exc())
-            QMessageBox.critical(self, "Error", str(e))
-
-        else:
-            if result is None:
-                self.log("Analysis finished without results.")
-            else:
-                self.log("Analysis complete.")
-
-        finally:
-            self.run_button.setEnabled(True)
+            request = self._build_analysis_request()
+        except Exception as exc:
+            self._on_analysis_failure(AnalysisFailure(str(exc), traceback.format_exc()))
+            self.update_input_state()
             self.log("=" * 40)
+            return
+
+        self.run_button.setEnabled(False)
+        thread = QThread(self)
+        worker = AnalysisWorker(request)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.log_message.connect(self.log)
+        worker.succeeded.connect(self._on_analysis_success)
+        worker.failed.connect(self._on_analysis_failure)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_analysis_thread_finished)
+
+        self._analysis_thread = thread
+        self._analysis_worker = worker
+        thread.start()
+
+    def _on_analysis_success(self, success: AnalysisSuccess) -> None:
+        if success.result is None:
+            self.log("Analysis finished without results.")
+        else:
+            self.log("Analysis complete.")
+
+    def _on_analysis_failure(self, failure: AnalysisFailure) -> None:
+        self.log(f"Error: {failure.message}")
+        self.log(failure.traceback_text)
+        QMessageBox.critical(self, "Error", failure.message)
+
+    def _on_analysis_thread_finished(self) -> None:
+        self._analysis_worker = None
+        self._analysis_thread = None
+        self.update_input_state()
+        self.log("=" * 40)

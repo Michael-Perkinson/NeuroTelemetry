@@ -28,10 +28,6 @@ dev = [
     "pytest>=8,<9",
     "ruff>=0.9,<1",
 ]
-tuning = [
-    "scikit-learn-extra>=0.3.0,<0.4",
-]
-
 [tool.pytest.ini_options]
 addopts = "-p no:cacheprovider"
 testpaths = ["tests"]
@@ -56,6 +52,7 @@ include = ["src*"]
 line-length = 88       # bump to reduce E501 spam
 indent-width = 4
 target-version = "py311"
+exclude = [".scratch/**", "_trial_multi.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

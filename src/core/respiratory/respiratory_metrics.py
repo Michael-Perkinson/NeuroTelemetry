@@ -138,109 +138,33 @@ def calculate_period_respiratory_metrics(
     """
     Calculates summary respiratory metrics (mean ± std optionally).
     """
-
-    if len(peak_indices) < 2 or len(trough_indices) < 2:
-        return {
-            "T_I_mean": np.nan,
-            "T_E_mean": np.nan,
-            "T_TOT_mean": np.nan,
-            "Duty_Cycle_mean": np.nan,
-            "Respiratory_Drive_mean": np.nan,
-            "Peak_to_Peak_mean": np.nan,
-            "Frequency_Hz": np.nan,
-            "Pressure Difference": np.nan,
-            **(
-                {
-                    "T_I_std": np.nan,
-                    "T_E_std": np.nan,
-                    "T_TOT_std": np.nan,
-                    "Duty_Cycle_std": np.nan,
-                    "Respiratory_Drive_std": np.nan,
-                    "Peak_to_Peak_std": np.nan,
-                    "Pressure Difference_std": np.nan,
-                }
-                if include_std
-                else {}
-            ),
-        }
-
-    # Align peak/trough order
-    if trough_indices.iloc[0] > peak_indices.iloc[0]:
-        peak_indices = peak_indices.iloc[1:]
-        period_peaks = period_peaks.iloc[1:]
-    if peak_indices.iloc[-1] < trough_indices.iloc[-1]:
-        trough_indices = trough_indices.iloc[:-1]
-
-    min_len = min(len(peak_indices), len(trough_indices))
-    peak_indices = peak_indices.iloc[:min_len]
-    trough_indices = trough_indices.iloc[:min_len]
-    period_peaks = period_peaks.iloc[:min_len]
-
-    # Time metrics
-    peak_vals = peak_indices.values.astype(float)
-    trough_vals = trough_indices.values.astype(float)
-
-    T_I = peak_vals - trough_vals
-    T_E = trough_vals[1:] - peak_vals[:-1]
-    T_TOT = T_I[:-1] + T_E
-    duty_cycle = T_I[:-1] / T_TOT
-
-    peak_pressures = pressure_data.loc[
-        peak_indices.index, "SmoothedPressure"
-    ].values.astype(float)
-    trough_pressures = pressure_data.loc[
-        trough_indices.index, "SmoothedPressure"
-    ].values.astype(float)
-    PI = np.abs(peak_pressures[: len(T_I)] - trough_pressures[: len(T_I)])
-    respiratory_drive = PI / T_I
-
-    peak_to_peak_times = np.diff(peak_vals)
-    frequencies = (
-        1 / peak_to_peak_times if len(peak_to_peak_times) > 0 else np.array([])
+    raw_metrics = calculate_period_respiratory_metrics_raw(
+        period_peaks, peak_indices, trough_indices, pressure_data
     )
+    output_names = {
+        "T_I": "T_I",
+        "T_E": "T_E",
+        "T_TOT": "T_TOT",
+        "Duty_Cycle": "Duty_Cycle",
+        "Drive": "Respiratory_Drive",
+        "Peak_to_Peak": "Peak_to_Peak",
+        "Freq": "Frequency_Hz",
+        "Pressure_Diff": "Pressure Difference",
+    }
 
-    metrics = {}
-
-    # Mean + std pairs
-    metrics["T_I_mean"] = T_I.mean()
-    if include_std:
-        metrics["T_I_std"] = T_I.std()
-
-    metrics["T_E_mean"] = T_E.mean() if len(T_E) else np.nan
-    if include_std:
-        metrics["T_E_std"] = T_E.std() if len(T_E) else np.nan
-
-    metrics["T_TOT_mean"] = T_TOT.mean() if len(T_TOT) else np.nan
-    if include_std:
-        metrics["T_TOT_std"] = T_TOT.std() if len(T_TOT) else np.nan
-
-    metrics["Duty_Cycle_mean"] = duty_cycle.mean() if len(duty_cycle) else np.nan
-    if include_std:
-        metrics["Duty_Cycle_std"] = duty_cycle.std() if len(duty_cycle) else np.nan
-
-    metrics["Respiratory_Drive_mean"] = (
-        respiratory_drive.mean() if len(respiratory_drive) else np.nan
-    )
-    if include_std:
-        metrics["Respiratory_Drive_std"] = (
-            respiratory_drive.std() if len(respiratory_drive) else np.nan
+    metrics: dict[str, float] = {}
+    for raw_name, output_name in output_names.items():
+        values = np.asarray(raw_metrics[raw_name], dtype=float)
+        mean_name = (
+            output_name
+            if raw_name in {"Freq", "Pressure_Diff"}
+            else f"{output_name}_mean"
         )
-
-    metrics["Peak_to_Peak_mean"] = (
-        peak_to_peak_times.mean() if len(peak_to_peak_times) else np.nan
-    )
-    if include_std:
-        metrics["Peak_to_Peak_std"] = (
-            peak_to_peak_times.std() if len(peak_to_peak_times) else np.nan
-        )
-
-    metrics["Frequency_Hz"] = frequencies.mean() if len(frequencies) else np.nan
-    if include_std:
-        metrics["Frequency_Hz_std"] = frequencies.std() if len(frequencies) else np.nan
-
-    metrics["Pressure Difference"] = PI.mean() if len(PI) else np.nan
-    if include_std:
-        metrics["Pressure Difference_std"] = PI.std() if len(PI) else np.nan
+        metrics[mean_name] = float(values.mean()) if values.size else np.nan
+        if include_std:
+            metrics[f"{output_name}_std"] = (
+                float(values.std()) if values.size else np.nan
+            )
 
     return metrics
 

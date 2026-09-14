@@ -10,6 +10,19 @@ import plotly.graph_objects as go
 from src.core.logger import log_info, log_warning
 
 
+def _normalized_activity_by_minute(activity_df: pd.DataFrame) -> pd.DataFrame:
+    """Return one-minute activity means normalized safely to their maximum."""
+    minute_bins = (activity_df["TimeSinceReference"] // 60).astype(int)
+    activity = activity_df.groupby(minute_bins)["Activity"].mean().reset_index()
+    activity = activity.rename(columns={"TimeSinceReference": "Bin"})
+    maximum = activity["Activity"].max()
+    if pd.isna(maximum) or maximum == 0:
+        activity["NormalizedActivity"] = 0.0
+    else:
+        activity["NormalizedActivity"] = activity["Activity"] / maximum
+    return activity
+
+
 def export_full_time_range_plot(
     main_data: pd.DataFrame,
     temp_data: pd.DataFrame,
@@ -205,16 +218,13 @@ def create_interactive_plot(
         )
 
     if not activity_df.empty:
-        act_binned = activity_df.copy()
-        act_binned["Bin"] = (act_binned["TimeSinceReference"] // 60).astype(int)
-        activity_binned = act_binned.groupby("Bin")["Activity"].mean().reset_index()
+        activity_binned = _normalized_activity_by_minute(activity_df)
 
         scale = yrange * 0.3
         fig.add_trace(
             go.Bar(
                 x=activity_binned["Bin"],  # minutes
-                y=(activity_binned["Activity"] / activity_binned["Activity"].max())
-                * scale,
+                y=activity_binned["NormalizedActivity"] * scale,
                 base=ymin,
                 width=1,  # 1 min wide
                 name="Activity (1-min bins)",
@@ -342,14 +352,12 @@ def create_static_plot(
     ax1.set_ylim(ymin, ymax)
 
     if not activity_df.empty:
-        act_binned = activity_df.copy()
-        act_binned["Bin"] = (act_binned["TimeSinceReference"] // 60).astype(int)
-        activity_bars = act_binned.groupby("Bin")["Activity"].mean().reset_index()
+        activity_bars = _normalized_activity_by_minute(activity_df)
 
         scale = yrange * 0.3
         ax1.bar(
             activity_bars["Bin"],  # minutes
-            (activity_bars["Activity"] / activity_bars["Activity"].max()) * scale,
+            activity_bars["NormalizedActivity"] * scale,
             bottom=ymin,
             color="purple",
             alpha=0.5,

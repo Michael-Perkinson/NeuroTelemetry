@@ -80,11 +80,14 @@ python -m ruff format --check .
 python -m mypy src tests main.py scripts
 ```
 
-If you use the optional clustering tuning script:
-
-```bash
-python -m pip install -e ".[tuning]"
-```
+Breath morphology clustering runs as a descriptive stage of the pressure
+pipeline. It writes `Clustering/breath_cluster_labels.csv`,
+`Clustering/period_cluster_summary.csv`, and
+`Clustering/period_cluster_distribution.csv`, plus
+`Clustering/clustering_summary.json` and a deterministic
+`Clustering/breath_cluster_waveforms.png` under each pressure analysis folder.
+Successful fits also write a safe prototype model as an NPZ/JSON pair for
+explicit reference-model reuse.
 
 ---
 
@@ -204,7 +207,8 @@ At 10 Hz, the primary 100-sample Welch window has a nominal frequency resolution
 ## Notes
 
 - `pyproject.toml` contains package metadata and runtime dependencies
-- Optional clustering tuning dependencies are available with `.[tuning]`
+- Breath morphology clustering is descriptive and does not determine peak or
+  respiratory-period validity
 - The pipeline prioritises robustness and interpretability over speed
 - Intended for research and analysis use, not real‑time or clinical deployment
 - The GUI remembers the last folder you browsed to and reopens there on the next run

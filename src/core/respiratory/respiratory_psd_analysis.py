@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.integrate import simpson
@@ -297,114 +296,9 @@ def _psd_metrics_summary_table(
     )
 
 
-def _export_psd_workbook(
-    output_folder: Path,
-    config: dict[str, Any],
-    metrics_df: pd.DataFrame,
-    rejection_df: pd.DataFrame,
-    segment_summary_df: pd.DataFrame,
-    per_window_psd_df: pd.DataFrame,
-    comparison_per_window_psd_df: pd.DataFrame,
-    log=print,
-) -> None:
-    """Write the PSD workbook students can send back for easy collation."""
-    workbook_path = output_folder / "ttot_psd_summary.xlsx"
-
-    accepted_segments = int(len(segment_summary_df))
-    rejected_rows = int(len(rejection_df))
-    windows_with_psd = (
-        int(metrics_df["Window"].nunique()) if not metrics_df.empty else 0
-    )
-    windows_with_warnings = (
-        int((metrics_df["QC_Warning"].fillna("") != "").sum())
-        if not metrics_df.empty
-        else 0
-    )
-
-    summary_rows = [
-        {"Field": "Metric", "Value": config.get("Metric", "Ttot")},
-        {"Field": "AcceptedSegments", "Value": accepted_segments},
-        {"Field": "RejectedPeriodsOrSegments", "Value": rejected_rows},
-        {"Field": "WindowsWithPSD", "Value": windows_with_psd},
-        {"Field": "WindowsWithQCWarnings", "Value": windows_with_warnings},
-        {"Field": "SummaryPlotPNG", "Value": "ttot_psd_summary.png"},
-        {"Field": "SummaryPlotSVG", "Value": "ttot_psd_summary.svg"},
-    ]
-    summary_rows.extend(
-        {"Field": key, "Value": value}
-        for key, value in config.items()
-        if key != "Metric"
-    )
-    summary_df = pd.DataFrame(summary_rows)
-
-    with pd.ExcelWriter(workbook_path, engine="openpyxl") as writer:
-        summary_df.to_excel(writer, sheet_name="Run Summary", index=False)
-        metrics_df.to_excel(writer, sheet_name="Window Metrics", index=False)
-        rejection_df.to_excel(writer, sheet_name="Rejected", index=False)
-        segment_summary_df.to_excel(writer, sheet_name="Segment Summary", index=False)
-        per_window_psd_df.to_excel(writer, sheet_name="Mean PSD Curves", index=False)
-        comparison_per_window_psd_df.to_excel(
-            writer, sheet_name="Comparison PSD", index=False
-        )
-
-        for sheet in writer.book.worksheets:
-            sheet.freeze_panes = "A2"
-            for column_cells in sheet.columns:
-                max_length = max(
-                    len(str(cell.value)) if cell.value is not None else 0
-                    for cell in column_cells
-                )
-                adjusted_width = min(max(max_length + 2, 12), 48)
-                sheet.column_dimensions[
-                    column_cells[0].column_letter
-                ].width = adjusted_width
-
-    log(f"Ttot PSD workbook saved: {workbook_path}")
-
-
-# Public API
-
-
-def export_ttot_traces(
+def _compute_ttot_psd(
     window_periods: dict[str, list[dict[str, Any]]],
-    output_folder: Path,
-    log=print,
-) -> None:
-    """Export raw breath-by-breath Ttot traces to CSV for each behavioural window.
-
-    Columns: TimeOfBreath_s, Ttot_s, PeriodIndex
-    """
-    output_folder.mkdir(parents=True, exist_ok=True)
-
-    for window_key, periods in window_periods.items():
-        rows = []
-        for period_idx, period in enumerate(periods, start=1):
-            trace_df = _build_ttot_trace(period)
-            if trace_df.empty:
-                continue
-            for row in trace_df.itertuples(index=False):
-                rows.append(
-                    {
-                        "TimeOfBreath_s": float(row.TimeOfBreath_s),
-                        "Ttot_s": float(row.Ttot_s),
-                        "PeriodIndex": period_idx,
-                    }
-                )
-        if not rows:
-            continue
-        df = pd.DataFrame(rows)
-        safe_key = window_key.replace(":", "_").replace("-", "_").replace(" ", "_")
-        out_path = output_folder / f"Ttot_{safe_key}.csv"
-        df.to_csv(out_path, index=False)
-
-    n = len(window_periods)
-    log(f"Ttot traces exported ({n} windows): {output_folder}")
-
-
-def analyze_ttot_psd(
-    window_periods: dict[str, list[dict[str, Any]]],
-    output_folder: Path,
-    log=print,
+    analysis_id: str,
     resample_hz: float = DEFAULT_PSD_RESAMPLE_HZ,
     segment_seconds: float = DEFAULT_PSD_SEGMENT_SECONDS,
     end_trim_samples: int = DEFAULT_PSD_END_TRIM_SAMPLES,
@@ -413,7 +307,7 @@ def analyze_ttot_psd(
     nfft: int = DEFAULT_PSD_NFFT,
     smooth_nperseg: int = DEFAULT_PSD_SMOOTH_NPERSEG,
     auc_band_hz: float = DEFAULT_PSD_AUC_BAND_HZ,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, float], int]:
     """Compute Ttot variability PSD per behavioural window (Bourdillon / Nico).
 
     Pipeline per valid period:
@@ -429,7 +323,7 @@ def analyze_ttot_psd(
       6. Average PSDs across all segments per window → representative PSD.
       7. Extract fmax, PSDmax, AUC (±`auc_band_hz` Hz) from the mean PSD.
 
-    Writes CSV outputs to `output_folder` and returns DataFrames for export.
+    Returns computed result tables and private orchestration metadata.
     """
     if resample_hz <= 0 or segment_seconds <= 0:
         raise ValueError("PSD resample rate and segment duration must be positive.")
@@ -444,8 +338,6 @@ def analyze_ttot_psd(
         raise ValueError("PSD segments must contain at least two resampled points.")
     primary_nperseg = min(smooth_nperseg, segment_point_count)
     comparison_nperseg = max(2, round(segment_point_count / welch_windows))
-    output_folder.mkdir(parents=True, exist_ok=True)
-
     segment_rows: list[dict[str, Any]] = []
     segment_psd_frames: list[pd.DataFrame] = []
     comparison_segment_psd_frames: list[pd.DataFrame] = []
@@ -669,12 +561,6 @@ def analyze_ttot_psd(
         for k, m in per_window_metrics.items()
         if m["fmax"] == 0.0 or m["fmax"] > _FMAX_HIGH_WARN
     }
-    if suspicious:
-        lines = ", ".join(f"{k}: {v:.4f} Hz" for k, v in suspicious.items())
-        log(
-            f"WARNING — fmax at DC or near Nyquist for: {lines}. "
-            "Check PSD curve manually."
-        )
 
     segment_summary_df = pd.DataFrame(
         segment_rows,
@@ -751,36 +637,8 @@ def analyze_ttot_psd(
             ]
         )
     )
-    analysis_id = output_folder.parent.name
     rejection_df.insert(0, "AnalysisID", analysis_id)
     segment_summary_df.insert(0, "AnalysisID", analysis_id)
-    rejection_df.to_csv(output_folder / "ttot_psd_rejected.csv", index=False)
-    log(
-        f"Ttot PSD: {len(rejection_df)} periods/segments rejected — "
-        "see ttot_psd_rejected.csv"
-    )
-
-    segment_summary_df.to_csv(
-        output_folder / "ttot_psd_segment_summary.csv", index=False
-    )
-    per_segment_psd_df.to_csv(output_folder / "ttot_psd_per_segment.csv", index=False)
-    comparison_per_segment_psd_df.to_csv(
-        output_folder / "ttot_psd_comparison_per_segment.csv", index=False
-    )
-    per_window_psd_df.to_csv(output_folder / "ttot_psd_per_window.csv", index=False)
-    comparison_per_window_psd_df.to_csv(
-        output_folder / "ttot_psd_comparison_per_window.csv", index=False
-    )
-    pooled_psd_df.to_csv(output_folder / "ttot_psd_pooled.csv", index=False)
-    resampled_traces_df.to_csv(
-        output_folder / "ttot_resampled_segments.csv", index=False
-    )
-
-    kept_segments = len(segment_summary_df)
-    log(
-        f"Ttot PSD: {kept_segments} / {total_candidate_segments} "
-        f"candidate {segment_seconds:.0f}s segments used."
-    )
 
     config = {
         "Metric": "Ttot",
@@ -806,31 +664,76 @@ def analyze_ttot_psd(
         per_window_metrics, resample_hz, primary_nperseg, window_drift_flags
     )
     window_metrics_df.insert(0, "AnalysisID", analysis_id)
-    window_metrics_df.to_csv(output_folder / "ttot_psd_window_metrics.csv", index=False)
-    _export_psd_workbook(
-        output_folder=output_folder,
-        config=config,
-        metrics_df=window_metrics_df,
-        rejection_df=rejection_df,
-        segment_summary_df=segment_summary_df,
-        per_window_psd_df=per_window_psd_df,
-        comparison_per_window_psd_df=comparison_per_window_psd_df,
-        log=log,
+
+    return (
+        {
+            "config": config,
+            "segment_summary": segment_summary_df,
+            "per_segment_psd": per_segment_psd_df,
+            "comparison_per_segment_psd": comparison_per_segment_psd_df,
+            "per_window_psd": per_window_psd_df,
+            "comparison_per_window_psd": comparison_per_window_psd_df,
+            "pooled_psd": pooled_psd_df,
+            "resampled_traces": resampled_traces_df,
+            "per_window_metrics": per_window_metrics,
+            "window_metrics": window_metrics_df,
+            "rejection_log": rejection_df,
+        },
+        suspicious,
+        total_candidate_segments,
     )
 
-    return {
-        "config": config,
-        "segment_summary": segment_summary_df,
-        "per_segment_psd": per_segment_psd_df,
-        "comparison_per_segment_psd": comparison_per_segment_psd_df,
-        "per_window_psd": per_window_psd_df,
-        "comparison_per_window_psd": comparison_per_window_psd_df,
-        "pooled_psd": pooled_psd_df,
-        "resampled_traces": resampled_traces_df,
-        "per_window_metrics": per_window_metrics,
-        "window_metrics": window_metrics_df,
-        "rejection_log": rejection_df,
-    }
+
+# Public compatibility API
+
+
+def analyze_ttot_psd(
+    window_periods: dict[str, list[dict[str, Any]]],
+    output_folder: Path,
+    log=print,
+    resample_hz: float = DEFAULT_PSD_RESAMPLE_HZ,
+    segment_seconds: float = DEFAULT_PSD_SEGMENT_SECONDS,
+    end_trim_samples: int = DEFAULT_PSD_END_TRIM_SAMPLES,
+    welch_windows: int = DEFAULT_PSD_WELCH_WINDOWS,
+    overlap_fraction: float = DEFAULT_PSD_OVERLAP_FRACTION,
+    nfft: int = DEFAULT_PSD_NFFT,
+    smooth_nperseg: int = DEFAULT_PSD_SMOOTH_NPERSEG,
+    auc_band_hz: float = DEFAULT_PSD_AUC_BAND_HZ,
+) -> dict[str, Any]:
+    """Compute and export Ttot variability PSD per behavioural window."""
+    from src.core.respiratory.respiratory_psd_export import export_ttot_psd_results
+
+    results, suspicious_fmax, total_candidate_segments = _compute_ttot_psd(
+        window_periods=window_periods,
+        analysis_id=output_folder.parent.name,
+        resample_hz=resample_hz,
+        segment_seconds=segment_seconds,
+        end_trim_samples=end_trim_samples,
+        welch_windows=welch_windows,
+        overlap_fraction=overlap_fraction,
+        nfft=nfft,
+        smooth_nperseg=smooth_nperseg,
+        auc_band_hz=auc_band_hz,
+    )
+    export_ttot_psd_results(
+        results,
+        output_folder,
+        suspicious_fmax=suspicious_fmax,
+        total_candidate_segments=total_candidate_segments,
+        log=log,
+    )
+    return results
+
+
+def export_ttot_traces(
+    window_periods: dict[str, list[dict[str, Any]]],
+    output_folder: Path,
+    log=print,
+) -> None:
+    """Export raw breath-by-breath Ttot traces for each behavioural window."""
+    from src.core.respiratory.respiratory_psd_export import export_ttot_traces as export
+
+    export(window_periods, output_folder, log=log)
 
 
 def plot_psd_results(
@@ -840,108 +743,7 @@ def plot_psd_results(
     show: bool = False,
     log=print,
 ) -> None:
-    """Save a 4-panel PSD QC figure; optionally show it interactively."""
-    per_window_psd_df: pd.DataFrame = psd_results.get("per_window_psd", pd.DataFrame())
-    per_window_metrics: dict[str, dict[str, float]] = psd_results.get(
-        "per_window_metrics", {}
-    )
-    auc_band = psd_results.get("config", {}).get("AUCBandHz", DEFAULT_PSD_AUC_BAND_HZ)
-    segment_seconds = psd_results.get("config", {}).get(
-        "SegmentDuration_s", DEFAULT_PSD_SEGMENT_SECONDS
-    )
+    """Save a PSD QC figure through the reporting module."""
+    from src.core.respiratory.respiratory_psd_export import plot_psd_results as plot
 
-    if per_window_psd_df.empty or not per_window_metrics:
-        log("Ttot PSD plot contains no valid per-window PSD results.")
-        if output_folder is not None:
-            output_folder.mkdir(parents=True, exist_ok=True)
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.text(
-                0.5,
-                0.5,
-                "No valid PSD results for this run",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
-            )
-            ax.set_axis_off()
-            fig.savefig(
-                output_folder / "ttot_psd_summary.png",
-                dpi=300,
-                bbox_inches="tight",
-            )
-            fig.savefig(
-                output_folder / "ttot_psd_summary.svg",
-                bbox_inches="tight",
-            )
-            plt.close(fig)
-        return
-
-    window_keys = list(per_window_metrics.keys())
-    fmax_vals = [per_window_metrics[k]["fmax"] for k in window_keys]
-    psdmax_vals = [per_window_metrics[k]["PSDmax"] for k in window_keys]
-    auc_vals = [per_window_metrics[k]["AUC"] for k in window_keys]
-    x = np.arange(len(window_keys))
-
-    fig = plt.figure(figsize=(16, 10))
-    grid = fig.add_gridspec(2, 2)
-    ax_psd = fig.add_subplot(grid[0, 0])
-    ax_fmax = fig.add_subplot(grid[0, 1])
-    ax_psdmax = fig.add_subplot(grid[1, 0])
-    ax_auc = fig.add_subplot(grid[1, 1])
-
-    colors = plt.cm.tab10(np.linspace(0, 1, len(window_keys)))
-
-    for color, window_key in zip(colors, window_keys, strict=False):
-        subset = per_window_psd_df[per_window_psd_df["Window"] == window_key]
-        if subset.empty:
-            continue
-        n_seg = int(per_window_metrics[window_key].get("n_segments", 0))
-        fmax = float(per_window_metrics[window_key].get("fmax", np.nan))
-        psdmax = float(per_window_metrics[window_key].get("PSDmax", np.nan))
-        ax_psd.plot(
-            subset["Frequency_Hz"],
-            subset["PSD"],
-            color=color,
-            alpha=0.8,
-            linewidth=1.0,
-            label=f"{window_key} (n={n_seg})",
-        )
-        if np.isfinite(fmax) and np.isfinite(psdmax):
-            ax_psd.scatter([fmax], [psdmax], color=color, s=24, zorder=3)
-
-    ax_psd.set_title(
-        f"Mean PSD per window - Ttot variability ({segment_seconds:.0f}s segments)"
-    )
-    ax_psd.set_xlabel("Frequency (Hz)")
-    ax_psd.set_ylabel("PSD (s^2/Hz)")
-    ax_psd.legend(fontsize=6)
-
-    ax_fmax.bar(x, fmax_vals)
-    ax_fmax.set_title("fmax per window")
-    ax_fmax.set_ylabel("Frequency (Hz)")
-    ax_fmax.set_xticks(x, window_keys, rotation=45, ha="right")
-
-    ax_psdmax.bar(x, psdmax_vals)
-    ax_psdmax.set_title("PSDmax per window")
-    ax_psdmax.set_ylabel("Power (s^2/Hz)")
-    ax_psdmax.set_xticks(x, window_keys, rotation=45, ha="right")
-
-    ax_auc.bar(x, auc_vals)
-    ax_auc.set_title(f"AUC +/-{auc_band} Hz around fmax")
-    ax_auc.set_ylabel("Area (s^2)")
-    ax_auc.set_xticks(x, window_keys, rotation=45, ha="right")
-
-    plt.tight_layout()
-    if output_folder is not None:
-        output_folder.mkdir(parents=True, exist_ok=True)
-        png_path = output_folder / "ttot_psd_summary.png"
-        svg_path = output_folder / "ttot_psd_summary.svg"
-        fig.savefig(png_path, dpi=300, bbox_inches="tight")
-        fig.savefig(svg_path, bbox_inches="tight")
-        log(f"Ttot PSD summary plot saved: {png_path}")
-        log(f"Ttot PSD summary plot saved: {svg_path}")
-
-    if show:
-        plt.show()
-    else:
-        plt.close(fig)
+    plot(psd_results, output_folder, show=show, log=log)

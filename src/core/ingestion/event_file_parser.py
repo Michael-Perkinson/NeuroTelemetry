@@ -41,12 +41,10 @@ def read_and_process_event_file(event_file_path: Path) -> pd.DataFrame:
 def select_fully_covered_windows(
     behaviour_to_plot: str,
     behaviour_data: dict[str, list[tuple[int, float, float, float]]],
-    reference_timestamp: pd.Timestamp,
     telemetry_bounds: tuple[float, float] | None = None,
     telemetry_intervals: list[tuple[float, float]] | None = None,
 ) -> list[tuple[float, float]]:
     """Return fully covered, eligible windows for a specific behavior."""
-    del reference_timestamp  # retained for compatibility with existing callers
     coverage = classify_behaviour_windows(
         behaviour_to_plot,
         behaviour_data,

@@ -1,8 +1,11 @@
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 
-def trim_to_window(df: pd.DataFrame, start: float, end: float) -> pd.DataFrame | None:
+def trim_to_window(
+    df: pd.DataFrame | None, start: float, end: float
+) -> pd.DataFrame | None:
     """Return subset of dataframe between time window or None if df is None."""
     if df is None:
         return None
@@ -14,7 +17,8 @@ def make_bin_edges(pre_min: int, post_min: int, bin_min: int) -> np.ndarray:
     bin_size_sec = bin_min * 60
     bin_start = -pre_min * 60
     bin_end = post_min * 60
-    return np.arange(bin_start, bin_end + bin_size_sec, bin_size_sec)
+    edges = np.arange(bin_start, bin_end, bin_size_sec)
+    return np.append(edges, bin_end)
 
 
 def bin_signal(
@@ -31,28 +35,28 @@ def bin_signal(
 
     # Convert absolute time → relative (0 = injection)
     t_rel = signal_df["TimeSinceReference"].to_numpy() - injection_sec
-    y = signal_df[signal_col].to_numpy()
+    y = signal_df[signal_col].to_numpy(dtype=float)
 
-    bin_indices = np.digitize(t_rel, bin_edges) - 1
+    bin_indices: npt.NDArray[np.intp] = np.asarray(
+        np.digitize(t_rel, bin_edges) - 1, dtype=np.intp
+    )
+    n_bins = len(bin_edges) - 1
+    in_range = (bin_indices >= 0) & (bin_indices < n_bins)
+    grouped = (
+        pd.DataFrame({"Bin": bin_indices[in_range], "Value": y[in_range]})
+        .groupby("Bin")["Value"]
+        .agg(["count", "mean", "std"])
+        .reindex(range(n_bins))
+    )
 
-    results = []
-    for i in range(len(bin_edges) - 1):
-        mask = bin_indices == i
-        vals = y[mask]
-        valid_vals = vals[~np.isnan(vals)]
-        if len(valid_vals) == 0:
-            mean, sem = np.nan, np.nan
-        else:
-            mean = float(np.mean(valid_vals))
-            sem = (
-                np.nan
-                if len(valid_vals) < 2
-                else float(np.std(valid_vals, ddof=1)) / np.sqrt(len(valid_vals))
-            )
-
-        results.append([bin_edges[i], bin_edges[i + 1], mean, sem])
-
-    return pd.DataFrame(results, columns=["BinStart", "BinEnd", "Mean", "SEM"])
+    return pd.DataFrame(
+        {
+            "BinStart": bin_edges[:-1],
+            "BinEnd": bin_edges[1:],
+            "Mean": grouped["mean"].to_numpy(),
+            "SEM": (grouped["std"] / np.sqrt(grouped["count"])).to_numpy(),
+        }
+    )
 
 
 def combine_signal_bins(

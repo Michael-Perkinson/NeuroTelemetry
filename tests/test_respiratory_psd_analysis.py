@@ -22,6 +22,7 @@ from src.core.respiratory.respiratory_psd_analysis import (
     _segment_drift_r2,
     _trim_period_ends,
     analyze_ttot_psd,
+    export_ttot_traces,
     plot_psd_results,
 )
 
@@ -122,6 +123,28 @@ def test_build_ttot_trace_drops_invalid_and_nonmonotonic_peaks() -> None:
     assert trace_df.to_dict("list") == {
         "TimeOfBreath_s": [0.0, 1.0, 2.0, 3.0],
         "Ttot_s": [1.0, 1.0, 1.0, 1.0],
+    }
+
+
+def test_export_ttot_traces_concatenates_periods_with_stable_columns(
+    local_tmpdir: Path,
+) -> None:
+    window_periods = {
+        "Window: 0-10": [
+            {"peak_times": pd.Series([0.0, 1.0, 2.0])},
+            {"peak_times": pd.Series([5.0, 7.0, 10.0])},
+            {"peak_times": pd.Series([12.0])},
+        ]
+    }
+
+    export_ttot_traces(window_periods, local_tmpdir, log=lambda _msg: None)
+
+    exported = pd.read_csv(local_tmpdir / "Ttot_Window__0_10.csv")
+    assert exported.columns.tolist() == ["TimeOfBreath_s", "Ttot_s", "PeriodIndex"]
+    assert exported.to_dict("list") == {
+        "TimeOfBreath_s": [0.0, 1.0, 5.0, 7.0],
+        "Ttot_s": [1.0, 1.0, 2.0, 3.0],
+        "PeriodIndex": [1, 1, 2, 2],
     }
 
 

@@ -5,7 +5,7 @@ from scipy.signal import find_peaks
 from src.core.logger import log_warning
 
 
-def find_shoulders(
+def find_shoulder_index(
     dvdt_segment: np.ndarray,
     start_index: int,
     peak_index: int,
@@ -62,7 +62,11 @@ def find_shoulders(
     return int(start_index + search_start_index + shoulder_offset)
 
 
-def find_peaks_and_shoulders(time, pressure, dvdt):
+def find_peaks_and_shoulders(
+    time: pd.Series,
+    pressure: np.ndarray,
+    dvdt: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
     time_win = np.asarray(time.values, dtype=float)
     pressure_win = pressure
     dvdt_win = dvdt
@@ -100,10 +104,10 @@ def find_peaks_and_shoulders(time, pressure, dvdt):
     for i, pk in enumerate(peaks):
         start = peaks[i - 1] if i > 0 else 0
         dvdt_seg = dvdt_win[start:pk]
-        shoulder = find_shoulders(dvdt_seg, start, pk)
+        shoulder = find_shoulder_index(dvdt_seg, start, pk)
         shoulders.append(shoulder)
 
-    return time_win, pressure_win, dvdt_win, peaks, shoulders
+    return peaks, np.asarray(shoulders, dtype=int)
 
 
 def analyse_peaks(
@@ -124,7 +128,7 @@ def analyse_peaks(
         dvdt_array = dvdt_window.to_numpy()
         time_array = pressure_data_window["TimeSinceReference"]
 
-        _, _, _, peaks, shoulders = find_peaks_and_shoulders(
+        peaks, shoulders = find_peaks_and_shoulders(
             time_array, smoothed_array, dvdt_array
         )
 

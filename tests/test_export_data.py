@@ -86,6 +86,26 @@ class TestExportData(unittest.TestCase):
         self.assertEqual(per_window.loc[0, "Window"], "0.0-10.0")
         self.assertEqual(float(per_window.loc[0, "T_I_mean"]), 0.5)
 
+    def test_build_metrics_export_tables_keeps_summary_when_binned_is_empty(
+        self,
+    ) -> None:
+        all_metrics = {
+            "0.0-10.0": {
+                "Periods": {
+                    "Period_1": {
+                        "Binned": pd.DataFrame(),
+                        "Summary": {"T_I_mean": 0.45},
+                    }
+                }
+            }
+        }
+
+        per_bin, per_period, _ = build_metrics_export_tables(all_metrics)
+
+        self.assertTrue(per_bin.empty)
+        self.assertEqual(per_period.loc[0, "Period"], "Period_1")
+        self.assertEqual(float(per_period.loc[0, "T_I_mean"]), 0.45)
+
 
 if __name__ == "__main__":
     unittest.main()

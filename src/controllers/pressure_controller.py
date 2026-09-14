@@ -1,7 +1,10 @@
 import json
 from collections import Counter
+from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from typing import Any, TypedDict
 
 import pandas as pd
 
@@ -26,6 +29,12 @@ from src.core.ingestion.telemetry_processing import (
     require_signal_frame,
 )
 from src.core.logger import log_exception, log_info
+from src.core.respiratory.breath_clustering import (
+    BreathClusteringConfig,
+    cluster_breaths,
+    export_breath_clustering,
+    plot_breath_cluster_waveforms,
+)
 from src.core.respiratory.peak_detection import analyse_peaks
 from src.core.respiratory.period_analysis import (
     compute_respiratory_metrics_for_periods,
@@ -50,6 +59,17 @@ from src.core.respiratory.respiratory_psd_analysis import (
     plot_psd_results,
 )
 from src.core.respiratory.signal_processing import get_time_bounds
+
+
+class PressurePipelineResult(TypedDict):
+    summary: list[dict[str, Any]]
+    metrics: dict[str, dict[str, Any]]
+    psd: dict[str, Any]
+    analysis_folder: Path
+    time_windows: list[tuple[float, float]]
+    behaviour_coverage: list[dict[str, Any]]
+    config_path: Path
+    clustering: dict[str, Any] | None
 
 
 def load_pressure_data(
@@ -92,24 +112,25 @@ def run_pressure_pipeline(
     behaviour_to_plot: str,
     video_time: str,
     bin_size_sec: int,
-    output_path: Path,
+    telemetry_path: Path,
     atm_bin_size_sec: int = 300,
     export_atm_summary: bool = True,
-    log_callback=None,
+    log_callback: Callable[[str], None] | None = None,
     analysis_root: Path | None = None,
     event_path: Path | None = None,
-) -> dict | None:
+    breath_clustering_config: BreathClusteringConfig | None = None,
+) -> PressurePipelineResult | None:
     """Run full analysis pipeline for pressure telemetry aligned to behaviors."""
 
-    def log(msg: str):
+    def log(msg: str) -> None:
         if log_callback:
             log_callback(msg)
         else:
             log_info(msg)
 
     start_time = datetime.now()
-    file_base = output_path.stem
-    output_root = analysis_root or (output_path.parent / "extracted_data")
+    file_base = telemetry_path.stem
+    output_root = analysis_root or (telemetry_path.parent / "extracted_data")
     analysis_folder = output_root / f"{file_base}_PressureAnalysis"
     analysis_folder.mkdir(parents=True, exist_ok=True)
 
@@ -123,7 +144,7 @@ def run_pressure_pipeline(
         "VideoTime": video_time,
         "AlignmentMethod": "absolute_video_start",
         "AnalysisStatus": "started",
-        "TelemetryFile": str(output_path.resolve()),
+        "TelemetryFile": str(telemetry_path.resolve()),
         "BinSize_s": bin_size_sec,
         "AtmPressureBinSize_s": atm_bin_size_sec,
         "ExportAtmPressureSummary": export_atm_summary,
@@ -147,6 +168,8 @@ def run_pressure_pipeline(
     }
     if event_path is not None:
         metadata["EventFile"] = str(event_path.resolve())
+    clustering_config = breath_clustering_config or BreathClusteringConfig()
+    metadata["ClusteringConfig"] = asdict(clustering_config)
 
     logs_folder = analysis_folder / "logs"
     logs_folder.mkdir(parents=True, exist_ok=True)
@@ -248,7 +271,6 @@ def run_pressure_pipeline(
         time_windows = select_fully_covered_windows(
             behaviour_to_plot,
             processed_data["Behaviours"],
-            new_reference_timestamp,
             telemetry_bounds=(min_time, max_time),
             telemetry_intervals=processed_data["PressureAnalyzableIntervals"],
         )
@@ -295,7 +317,6 @@ def run_pressure_pipeline(
             window_periods,
         ) = find_valid_periods(
             results,
-            pressure_data,
             time_windows,
         )
 
@@ -391,6 +412,41 @@ def run_pressure_pipeline(
             window_periods=window_periods, output_folder=ttot_export_folder, log=log
         )
 
+        clustering_result: dict[str, Any] | None = None
+        clustering_folder = analysis_folder / "Clustering"
+        log("Clustering breath waveforms by morphology...")
+        try:
+            morphology_result = cluster_breaths(
+                window_periods=window_periods,
+                pressure_data=pressure_data,
+                config=clustering_config,
+            )
+            clustering_paths = export_breath_clustering(
+                morphology_result, clustering_folder
+            )
+            waveform_plot = plot_breath_cluster_waveforms(
+                morphology_result, clustering_folder
+            )
+            if waveform_plot is not None:
+                clustering_paths["waveform_plot"] = waveform_plot
+            metadata["ClusteringStatus"] = morphology_result.metadata.get(
+                "status", "unknown"
+            )
+            clustering_result = {
+                "metadata": morphology_result.metadata,
+                "paths": {name: str(path) for name, path in clustering_paths.items()},
+            }
+            log(
+                "Breath morphology clustering completed: "
+                f"{metadata['ClusteringStatus']}"
+            )
+        except Exception as clustering_error:
+            # Clustering is descriptive and must never prevent primary metrics
+            # or PSD outputs from completing.
+            metadata["ClusteringStatus"] = "failed"
+            metadata["ClusteringError"] = str(clustering_error)
+            log(f"Breath morphology clustering skipped: {clustering_error}")
+
         log(f"Total runtime: {(datetime.now() - start_time).total_seconds():.1f}s")
 
         metadata["AnalysisStatus"] = "complete"
@@ -411,4 +467,5 @@ def run_pressure_pipeline(
         "time_windows": time_windows,
         "behaviour_coverage": coverage,
         "config_path": config_path,
+        "clustering": clustering_result,
     }

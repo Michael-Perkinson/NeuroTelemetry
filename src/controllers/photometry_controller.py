@@ -1,6 +1,8 @@
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import TypedDict
 
 import pandas as pd
 
@@ -33,11 +35,21 @@ from src.core.respiratory.signal_processing import compute_time_window, get_time
 MAIN_SIGNAL = "dFoF_465"
 
 
+class PhotometryPipelineResult(TypedDict):
+    summary: dict[str, float]
+    per_peak_df: pd.DataFrame
+    signal_binned: pd.DataFrame
+    peaks_binned: pd.DataFrame
+    analysis_folder: Path
+    excel_path: Path
+    config_path: Path
+
+
 def load_photometry_data(
     photometry_path: Path,
     telemetry_path: Path,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load photometry and event files with logging + error context."""
+    """Load photometry and telemetry files with logging + error context."""
     try:
         log_info(f"Loading photometry: {photometry_path}")
         log_info(f"Loading telemetry file: {telemetry_path}")
@@ -74,11 +86,11 @@ def run_photometry_pipeline(
     post_min: int,
     bin_min: int,
     telemetry_path: Path,
-    log_callback=None,
-) -> dict | None:
+    log_callback: Callable[[str], None] | None = None,
+) -> PhotometryPipelineResult | None:
     """Run full analysis pipeline for photometry aligned to injection events."""
 
-    def log(msg: str):
+    def log(msg: str) -> None:
         if log_callback:
             log_callback(msg)
         else:

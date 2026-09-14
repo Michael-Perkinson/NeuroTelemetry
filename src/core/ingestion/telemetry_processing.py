@@ -1,7 +1,8 @@
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal, TypedDict, cast
 
 import numpy as np
 import pandas as pd
@@ -17,6 +18,20 @@ from src.core.respiratory.signal_processing import (
 
 PRESSURE_COVERAGE_MAX_GAP_SECONDS = 1.0
 PRESSURE_FILTER_EDGE_MARGIN_SECONDS = 1.0
+
+
+class ProcessedTelemetry(TypedDict, total=False):
+    Pressure: pd.DataFrame
+    Temp: pd.DataFrame
+    Activity: pd.DataFrame
+    AtmPressure: pd.DataFrame
+    Behaviours: dict[str, list[tuple[int, float, float, float]]]
+    ReferenceTimestamp: datetime
+    FirstValidTimestamp: datetime
+    PressureCoverageIntervals: list[tuple[float, float]]
+    PressureAnalyzableIntervals: list[tuple[float, float]]
+    PressureCoverageMaxGapSeconds: float
+    PressureFilterEdgeMarginSeconds: float
 
 
 def _to_datetime_with_ms(
@@ -227,7 +242,7 @@ def process_telemetry_to_aligned_frame(
     alignment_date_time: str,
     *,
     timeline_origin: Literal["first_valid", "alignment"] = "first_valid",
-) -> dict[str, Any]:
+) -> ProcessedTelemetry:
     """Parse telemetry and express it on the requested timeline."""
     if timeline_origin not in {"first_valid", "alignment"}:
         raise ValueError("timeline_origin must be 'first_valid' or 'alignment'.")
@@ -269,7 +284,10 @@ def process_telemetry_to_aligned_frame(
     )
 
     # build once, after finalised timeline
-    processed_data: dict[str, Any] = build_output_frames(numerical_data, sample_rates)
+    processed_data = cast(
+        ProcessedTelemetry,
+        build_output_frames(numerical_data, sample_rates),
+    )
 
     if behaviour_data is not None:
         behaviour_offset = (align_ref - timeline_ref).total_seconds()
@@ -301,23 +319,16 @@ def continuous_signal_coverage(
 
     signal = pd.to_numeric(numerical_data[signal_name], errors="coerce")
     times = pd.to_numeric(numerical_data["TimeSinceReference"], errors="coerce")
-    valid_times = (
-        times[signal.notna() & times.notna()].drop_duplicates().sort_values().tolist()
+    valid_times = np.sort(
+        times[signal.notna() & times.notna()].drop_duplicates().to_numpy(dtype=float)
     )
-    if not valid_times:
+    if valid_times.size == 0:
         return []
 
-    intervals: list[tuple[float, float]] = []
-    interval_start = float(valid_times[0])
-    previous = interval_start
-    for raw_time in valid_times[1:]:
-        current = float(raw_time)
-        if current - previous > max_gap_seconds:
-            intervals.append((interval_start, previous))
-            interval_start = current
-        previous = current
-    intervals.append((interval_start, previous))
-    return intervals
+    gap_indices = np.flatnonzero(np.diff(valid_times) > max_gap_seconds)
+    starts = valid_times[np.concatenate(([0], gap_indices + 1))]
+    ends = valid_times[np.concatenate((gap_indices, [valid_times.size - 1]))]
+    return list(zip(starts.tolist(), ends.tolist(), strict=True))
 
 
 def trim_coverage_intervals(
@@ -646,7 +657,7 @@ def prepare_raw_data(
     return df_raw
 
 
-def require_signal_frame(data: dict[str, Any], key: str) -> pd.DataFrame:
+def require_signal_frame(data: Mapping[str, object], key: str) -> pd.DataFrame:
     """Return the named signal dataframe, or an empty one if absent/empty.
 
     Raises if `key` is "Pressure", since pressure is the required primary signal.

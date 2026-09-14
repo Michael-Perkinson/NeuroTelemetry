@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -49,6 +50,7 @@ except ModuleNotFoundError:
     sys.modules["plotly.graph_objects"] = graph_objects_module
 
 from src.core.export.export_graphs import (
+    _normalized_activity_by_minute,
     create_interactive_plot,
     create_static_plot,
     export_behavior_plots_per_window,
@@ -162,6 +164,51 @@ class TestExportGraphHelpers(unittest.TestCase):
 
             self.assertTrue(save_path.exists())
             self.assertIn("<svg", save_path.read_text(encoding="utf-8"))
+
+    def test_zero_activity_normalization_is_finite_for_both_plot_paths(self) -> None:
+        zero_activity = pd.DataFrame(
+            {
+                "TimeSinceReference": [0.0, 30.0, 60.0],
+                "Activity": [0.0, 0.0, 0.0],
+            }
+        )
+        normalized = _normalized_activity_by_minute(zero_activity)
+        np.testing.assert_array_equal(normalized["NormalizedActivity"], [0.0, 0.0])
+
+        with (
+            patch(
+                "src.core.export.export_graphs._normalized_activity_by_minute",
+                wraps=_normalized_activity_by_minute,
+            ) as normalize,
+            patch("matplotlib.figure.Figure.savefig"),
+        ):
+            fig = create_interactive_plot(
+                _main_df(),
+                pd.DataFrame(),
+                zero_activity,
+                peak_times=[],
+                pre_peak_times=[],
+                title="Zero activity",
+                main_signal_col="SmoothedPressure",
+                main_signal_label="Pressure",
+            )
+            create_static_plot(
+                _main_df(),
+                pd.DataFrame(),
+                zero_activity,
+                peak_times=[],
+                pre_peak_times=[],
+                save_path="unused.svg",
+                title="Zero activity",
+                main_signal_col="SmoothedPressure",
+                main_signal_label="Pressure",
+            )
+
+        activity_trace = next(
+            trace for trace in fig.data if trace.name == "Activity (1-min bins)"
+        )
+        np.testing.assert_array_equal(activity_trace.y, [0.0, 0.0])
+        self.assertEqual(normalize.call_count, 2)
 
 
 class TestExportGraphEntrypoints(unittest.TestCase):
