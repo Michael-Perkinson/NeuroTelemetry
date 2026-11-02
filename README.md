@@ -39,6 +39,7 @@ crossing an outage or margin is not treated as fully covered.
 
 ### Injection‑aligned photometry analysis
 
+- Accepts photometry CSV time columns named `# t_min` or `t_min` (minutes)
 - Aligns photometry signals to an injection or event time
 - Detects photometry peaks and per‑peak metrics
 - Bins signals and peaks relative to injection (mean ± SEM)
