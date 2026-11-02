@@ -36,6 +36,20 @@ def test_read_and_process_photometry_file_keeps_numeric_signal_columns(
     }
 
 
+def test_read_and_process_photometry_file_accepts_unprefixed_time_column(
+    local_tmpdir: Path,
+) -> None:
+    photometry_path = local_tmpdir / "photometry.csv"
+    photometry_path.write_text("t_min,dFoF_465\n0.0,1.0\n0.5,2.0\n")
+
+    df = read_and_process_photometry_file(photometry_path)
+
+    assert df.to_dict("list") == {
+        "TimeSinceReference": [0.0, 30.0],
+        "dFoF_465": [1.0, 2.0],
+    }
+
+
 def test_read_and_process_photometry_file_requires_time_column(
     local_tmpdir: Path,
 ) -> None:

@@ -15,11 +15,17 @@ def read_and_process_photometry_file(photometry_file_path: Path) -> pd.DataFrame
     """
     df = pd.read_csv(photometry_file_path)
 
-    if "# t_min" not in df.columns:
-        raise ValueError("Photometry file must contain a '# t_min' column (minutes).")
+    time_column = next(
+        (column for column in ("# t_min", "t_min") if column in df.columns),
+        None,
+    )
+    if time_column is None:
+        raise ValueError(
+            "Photometry file must contain a '# t_min' or 't_min' column (minutes)."
+        )
 
     # Add TimeSinceReference in seconds
-    df["TimeSinceReference"] = pd.to_numeric(df["# t_min"], errors="coerce") * 60.0
+    df["TimeSinceReference"] = pd.to_numeric(df[time_column], errors="coerce") * 60.0
 
     keep_cols = ["TimeSinceReference"]
     for col in ["dFoF_465", "dFoF_405", "Z_465"]:
