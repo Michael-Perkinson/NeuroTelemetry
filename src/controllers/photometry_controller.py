@@ -21,6 +21,10 @@ from src.core.ingestion.telemetry_processing import (
     process_telemetry_to_aligned_frame,
 )
 from src.core.logger import log_exception, log_info
+from src.core.output_paths import (
+    analysis_output_location,
+    output_path_exceeds_platform_budget,
+)
 from src.core.photometry.photometry_metrics import (
     bin_signal,
     combine_signal_bins,
@@ -75,6 +79,7 @@ def run_photometry_pipeline(
     bin_min: int,
     telemetry_path: Path,
     log_callback=None,
+    analysis_root: Path | None = None,
 ) -> dict | None:
     """Run full analysis pipeline for photometry aligned to injection events."""
 
@@ -89,11 +94,18 @@ def run_photometry_pipeline(
 
     start_time = datetime.now()
 
-    file_base = telemetry_path.stem
-    analysis_folder = (
-        telemetry_path.parent / "extracted_data" / f"{file_base}_PhotometryAnalysis"
+    output_location = analysis_output_location(
+        telemetry_path, "PhotometryAnalysis", analysis_root
     )
+    analysis_folder = output_location.folder
+    file_base = output_location.file_stem
+    if output_path_exceeds_platform_budget(output_location):
+        raise ValueError(
+            "Analysis output path is too long for Windows. Choose a shorter "
+            "output folder and retry."
+        )
     analysis_folder.mkdir(parents=True, exist_ok=True)
+    log(f"Output folder: {analysis_folder}")
 
     date_str = start_time.strftime("%Y%m%d_%H%M%S")
 

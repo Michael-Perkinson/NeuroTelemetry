@@ -32,6 +32,10 @@ from src.controllers.pressure_controller import (
     run_pressure_pipeline,
 )
 from src.core.file_utilities import detect_data_type
+from src.core.output_paths import (
+    AnalysisOutputLocation,
+    choose_analysis_root_if_needed,
+)
 
 
 class AnalysisWindow(QWidget):
@@ -321,6 +325,30 @@ class AnalysisWindow(QWidget):
 
     # Analysis
 
+    def _choose_analysis_root(
+        self, telemetry_path: Path, suffix: str
+    ) -> tuple[Path | None, bool]:
+        def choose_folder() -> str:
+            return QFileDialog.getExistingDirectory(
+                self,
+                "Choose a shorter parent folder for analysis results",
+                str(Path.home()),
+            )
+
+        def warn_too_long(location: AnalysisOutputLocation) -> None:
+            QMessageBox.warning(
+                self,
+                "Output folder path is still too long",
+                "The selected parent folder would still produce an output path "
+                "that exceeds the safe Windows path length. Choose a shorter folder "
+                "or cancel the analysis.\n\n"
+                f"Proposed analysis folder:\n{location.folder}",
+            )
+
+        return choose_analysis_root_if_needed(
+            telemetry_path, suffix, choose_folder, warn_too_long
+        )
+
     def run_analysis(self):
         self.save_settings()
         self.run_button.setEnabled(False)
@@ -333,6 +361,20 @@ class AnalysisWindow(QWidget):
             second_path = Path(self.secondary_path.text())
             if not second_path.exists():
                 raise FileNotFoundError("Second file does not exist.")
+
+            suffix_by_mode = {
+                "photometry": "PhotometryAnalysis",
+                "behaviour": "PressureAnalysis",
+            }
+            suffix = suffix_by_mode.get(self.file_mode)
+            if suffix is None:
+                raise ValueError("Unknown file type. Must be Behaviour or Photometry.")
+            analysis_root, cancelled = self._choose_analysis_root(
+                telemetry_path, suffix
+            )
+            if cancelled:
+                self.log("Analysis cancelled before processing.")
+                return
 
             if self.file_mode == "photometry":
                 self.log("Loading telemetry and photometry...")
@@ -354,6 +396,7 @@ class AnalysisWindow(QWidget):
                     bin_min=self.photo_bin_min.value(),
                     telemetry_path=telemetry_path,
                     log_callback=self.log,
+                    analysis_root=analysis_root,
                 )
 
             elif self.file_mode == "behaviour":
@@ -375,6 +418,7 @@ class AnalysisWindow(QWidget):
                     atm_bin_size_sec=self.atm_bin_size.value(),
                     export_atm_summary=self.export_atm_summary.isChecked(),
                     log_callback=self.log,
+                    analysis_root=analysis_root,
                     event_path=second_path,
                 )
 

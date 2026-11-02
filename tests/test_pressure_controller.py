@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -57,20 +58,20 @@ def test_pressure_pipeline_smoke(local_tmpdir: Path) -> None:
     assert results["config_path"].is_file()
 
 
-def test_pressure_pipeline_handles_failure_gracefully(local_tmpdir: Path) -> None:
+def test_pressure_pipeline_handles_failure_gracefully(
+    local_tmpdir: Path, monkeypatch
+) -> None:
     """Test that pipeline catches exceptions and marks status as failed."""
     import pandas as pd
 
     from src.controllers.pressure_controller import run_pressure_pipeline
+    from src.core import output_paths
 
+    monkeypatch.setattr(output_paths, "_windows_path_budget", lambda: None)
     output_path = local_tmpdir / f"pressure_run_{uuid4().hex}"
 
-    # Create minimal mock dataframes
     telemetry_df = pd.DataFrame(
-        {
-            "Timestamp": [0.0, 1.0, 2.0],
-            "Pressure": [100.0, 101.0, 99.0],
-        }
+        {"Timestamp": [0.0, 1.0, 2.0], "Pressure": [100.0, 101.0, 99.0]}
     )
     event_df = pd.DataFrame(
         {
@@ -80,47 +81,45 @@ def test_pressure_pipeline_handles_failure_gracefully(local_tmpdir: Path) -> Non
         }
     )
 
-    # Patch structure_behaviour_events to raise an exception early in the pipeline
-    with patch(
-        "src.controllers.pressure_controller.structure_behaviour_events"
-    ) as mock_struct:
-        mock_struct.side_effect = RuntimeError("Simulated behavior structure failure")
-
-        # The exception should be re-raised
-        with pytest.raises(RuntimeError, match="Simulated behavior structure failure"):
-            run_pressure_pipeline(
-                telemetry_df=telemetry_df,
-                event_df=event_df,
-                behaviour_to_plot="Time spent sleeping",
-                video_time="01/11/2025 04:59:59 PM",
-                bin_size_sec=10,
-                output_path=output_path,
-                log_callback=lambda x: None,
+    with tempfile.TemporaryDirectory(
+        prefix="ntp_", dir=tempfile.gettempdir()
+    ) as analysis_root_dir:
+        analysis_root = Path(analysis_root_dir)
+        with patch(
+            "src.controllers.pressure_controller.structure_behaviour_events"
+        ) as mock_struct:
+            mock_struct.side_effect = RuntimeError(
+                "Simulated behavior structure failure"
             )
 
-        # But the config file should exist and have status="failed"
-        analysis_folder = (
-            output_path.parent
-            / "extracted_data"
-            / f"{output_path.stem}_PressureAnalysis"
-        )
-        logs_folder = analysis_folder / "logs"
-        assert logs_folder.exists()
+            with pytest.raises(
+                RuntimeError, match="Simulated behavior structure failure"
+            ):
+                run_pressure_pipeline(
+                    telemetry_df=telemetry_df,
+                    event_df=event_df,
+                    behaviour_to_plot="Time spent sleeping",
+                    video_time="01/11/2025 04:59:59 PM",
+                    bin_size_sec=10,
+                    output_path=output_path,
+                    log_callback=lambda x: None,
+                    analysis_root=analysis_root,
+                )
 
-        # Find the config file (should be analysis_config_*.json)
-        config_files = list(logs_folder.glob("analysis_config_*.json"))
-        assert len(config_files) == 1, (
-            f"Expected 1 config file, found {len(config_files)}"
-        )
+            analysis_folder = analysis_root / f"{output_path.stem}_PressureAnalysis"
+            logs_folder = analysis_folder / "logs"
+            assert logs_folder.exists()
 
-        config_path = config_files[0]
-        config_data = json.loads(config_path.read_text())
+            config_files = list(logs_folder.glob("analysis_config_*.json"))
+            assert len(config_files) == 1, (
+                f"Expected 1 config file, found {len(config_files)}"
+            )
+            config_data = json.loads(config_files[0].read_text())
 
-        # Verify the status is marked as failed
-        assert config_data["AnalysisStatus"] == "failed"
-        assert "ErrorMessage" in config_data
-        assert "Simulated behavior structure failure" in config_data["ErrorMessage"]
-        assert "FailedAt" in config_data
+            assert config_data["AnalysisStatus"] == "failed"
+            assert "ErrorMessage" in config_data
+            assert "Simulated behavior structure failure" in config_data["ErrorMessage"]
+            assert "FailedAt" in config_data
 
 
 if __name__ == "__main__":

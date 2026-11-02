@@ -161,7 +161,9 @@ one telemetry file), the batch stops with a non-zero exit status before analysis
 instead of allowing results to overwrite each other. Rename those telemetry
 files or use separate batch runs/output directories.
 
-Failed recordings are skipped and reported at the end — the rest of the batch still completes.
+Failed recordings are skipped and reported at the end — the rest of the batch
+still completes. On Windows, the batch runner reports an actionable error if a
+result path exceeds the safe path budget; retry with a shorter `--output-dir`.
 
 ---
 
@@ -187,6 +189,14 @@ Photometry analysis is written under
 - An Excel workbook with **Binned Data** and **Raw Data** sheets
 - Interactive HTML and static SVG plots
 - `analysis_config_<timestamp>.json` describing the alignment and binning settings
+
+The GUI normally writes results beside the telemetry file in
+`extracted_data/`. If Windows estimates that the generated path would be too
+long, it asks you to choose a shorter parent folder before processing; the
+recording-specific analysis folder is created under that parent. The proposed
+path is checked; if it is still too long, the GUI warns and asks again. You can
+cancel without starting analysis. Results are written directly to the final
+analysis folder, and its exact location is shown in the run log.
 
 ### Ttot PSD method
 

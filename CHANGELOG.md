@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Output path compatibility
+
+- The GUI checks estimated Windows output-path length before processing. When the
+  adjacent output path is too long, it asks for a shorter output parent,
+  validates the choice, and re-prompts if needed; selected destinations are
+  logged. Controllers fail with a clear message when called directly with an
+  overlong path.
+
 ### Alignment corrections
 
 - Behaviour alignment now derives the telemetry offset directly from the video

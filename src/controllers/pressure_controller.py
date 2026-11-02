@@ -26,6 +26,10 @@ from src.core.ingestion.telemetry_processing import (
     require_signal_frame,
 )
 from src.core.logger import log_exception, log_info
+from src.core.output_paths import (
+    analysis_output_location,
+    output_path_exceeds_platform_budget,
+)
 from src.core.respiratory.peak_detection import analyse_peaks
 from src.core.respiratory.period_analysis import (
     compute_respiratory_metrics_for_periods,
@@ -108,10 +112,17 @@ def run_pressure_pipeline(
             log_info(msg)
 
     start_time = datetime.now()
-    file_base = output_path.stem
-    output_root = analysis_root or (output_path.parent / "extracted_data")
-    analysis_folder = output_root / f"{file_base}_PressureAnalysis"
+    output_location = analysis_output_location(
+        output_path, "PressureAnalysis", analysis_root
+    )
+    analysis_folder = output_location.folder
+    if output_path_exceeds_platform_budget(output_location):
+        raise ValueError(
+            "Analysis output path is too long for Windows. Choose a shorter "
+            "output folder and retry."
+        )
     analysis_folder.mkdir(parents=True, exist_ok=True)
+    log(f"Output folder: {analysis_folder}")
 
     date_str = start_time.strftime("%Y%m%d_%H%M%S")
 
